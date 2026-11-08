@@ -117,7 +117,7 @@ SENSORS: tuple[SensorEntityDescription, ...] = (
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = entry.runtime_data
-    async_add_entities(SofarSensor(coordinator, d) for d in SENSORS)
+    async_add_entities([SofarSensor(coordinator, d) for d in SENSORS] + [SlotScheduleSensor(coordinator)])
 
 
 class SofarSensor(SofarEntity, SensorEntity):
@@ -128,3 +128,24 @@ class SofarSensor(SofarEntity, SensorEntity):
     @property
     def native_value(self):
         return (self.coordinator.data or {}).get(self._key)
+
+
+class SlotScheduleSensor(SofarEntity, SensorEntity):
+    """State = what the Home Assistant slot scheduler is doing; attributes list the slots."""
+
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "slot_schedule")
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        return self.coordinator.slot_status
+
+    @property
+    def extra_state_attributes(self):
+        return {"slots": self.coordinator.slots}

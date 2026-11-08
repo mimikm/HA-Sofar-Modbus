@@ -17,4 +17,4 @@ DEFAULT_KEEPALIVE = False
 DEFAULT_AUTO_TIME_SYNC = False
 TIME_SYNC_THRESHOLD = 30  # seconds of drift before auto sync
 
-PLATFORMS = ["sensor", "binary_sensor", "select", "number", "switch", "button"]
+PLATFORMS = ["sensor", "binary_sensor", "select", "number", "switch", "button", "time"]

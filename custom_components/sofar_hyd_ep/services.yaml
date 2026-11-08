@@ -55,3 +55,127 @@ scan_registers:
       example: 64
       selector:
         number: {min: 1, max: 2048, mode: box}
+
+charge_slot: &slot
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: sofar_hyd_ep
+    start:
+      required: true
+      example: "02:00"
+      selector:
+        text:
+    end:
+      required: true
+      example: "05:00"
+      selector:
+        text:
+    power:
+      example: 2500
+      selector:
+        number: {min: 0, max: 10000, step: 50, unit_of_measurement: W, mode: box}
+    soc:
+      example: 90
+      selector:
+        number: {min: 0, max: 100, step: 1, unit_of_measurement: "%", mode: box}
+    daily:
+      default: false
+      selector:
+        boolean:
+
+discharge_slot: *slot
+
+clear_slots:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: sofar_hyd_ep
+    slot_id:
+      selector:
+        text:
+
+set_timing_slot:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: sofar_hyd_ep
+    slot:
+      required: true
+      default: 1
+      selector:
+        number: {min: 1, max: 4, mode: box}
+    charge_enabled:
+      default: true
+      selector:
+        boolean:
+    charge_start:
+      selector:
+        time:
+    charge_end:
+      selector:
+        time:
+    charge_power:
+      selector:
+        number: {min: 0, max: 10000, step: 50, unit_of_measurement: W, mode: box}
+    discharge_enabled:
+      default: false
+      selector:
+        boolean:
+    discharge_start:
+      selector:
+        time:
+    discharge_end:
+      selector:
+        time:
+    discharge_power:
+      selector:
+        number: {min: 0, max: 10000, step: 50, unit_of_measurement: W, mode: box}
+    activate:
+      default: true
+      selector:
+        boolean:
+
+set_tou_rule:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: sofar_hyd_ep
+    rule:
+      required: true
+      default: 1
+      selector:
+        number: {min: 1, max: 4, mode: box}
+    enabled:
+      default: true
+      selector:
+        boolean:
+    start:
+      required: true
+      selector:
+        time:
+    end:
+      required: true
+      selector:
+        time:
+    target_soc:
+      default: 100
+      selector:
+        number: {min: 30, max: 100, unit_of_measurement: "%", mode: box}
+    power:
+      required: true
+      selector:
+        number: {min: 0, max: 10000, step: 50, unit_of_measurement: W, mode: box}
+    weekdays:
+      selector:
+        select:
+          multiple: true
+          options: [mon, tue, wed, thu, fri, sat, sun]
+    activate:
+      default: true
+      selector:
+        boolean:

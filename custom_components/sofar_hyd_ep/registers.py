@@ -344,3 +344,62 @@ def action_to_passive(action: str, power: int, rated: int) -> tuple[int, int, in
         # Grid target 0, battery may only charge (from surplus), never discharge.
         return 0, 0, rated
     return None
+
+
+# --------------------------------------------------------------------------- native slots
+# Timing mode (energy storage mode 2): 4 slots, ID 0..3, lower ID = higher priority.
+REG_TIMING_BLOCK = 0x1111   # ID, on/off bits, chg start, chg end, dis start, dis end,
+                            # chg power (U32 W), dis power (U32 W)
+REG_TIMING_CONTROL = 0x111F
+# Time of use (energy storage mode 1): rules ID 0..3.
+REG_TOU_BLOCK = 0x1120      # ID, enable, start, end, target SOC, power (U32 W),
+                            # date start (MM<<8|DD), date end, weekday bits (bit0=Mon)
+REG_TOU_CONTROL = 0x112F
+MODE_TOU = 1
+MODE_TIMING = 2
+
+CONTROL_STATUS = {
+    0x0000: "success",
+    0x0001: "in progress",
+    0xFFFB: "inverter refused (busy or configuration failed)",
+    0xFFFC: "no response from controller",
+    0xFFFD: "function forbidden",
+    0xFFFE: "failed to save parameters",
+    0xFFFF: "invalid parameters",
+}
+
+WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def hhmm(t) -> int:
+    """datetime.time / 'HH:MM' -> hour<<8 | minute."""
+    if isinstance(t, str):
+        h, m = (int(x) for x in t.split(":")[:2])
+    else:
+        h, m = t.hour, t.minute
+    return (h << 8) | m
+
+
+def unpack_hhmm(word: int) -> str:
+    return f"{(word >> 8) & 0xFF:02d}:{word & 0xFF:02d}"
+
+
+def pack_u32(value: int) -> list[int]:
+    value = int(value) & 0xFFFFFFFF
+    return [value >> 16, value & 0xFFFF]
+
+
+def pack_timing(slot_id: int, charge_on: bool, discharge_on: bool, charge_start, charge_end,
+                discharge_start, discharge_end, charge_power: int, discharge_power: int) -> list[int]:
+    flags = (1 if charge_on else 0) | (2 if discharge_on else 0)
+    return ([slot_id, flags, hhmm(charge_start), hhmm(charge_end), hhmm(discharge_start),
+             hhmm(discharge_end)] + pack_u32(abs(charge_power)) + pack_u32(abs(discharge_power)))
+
+
+def pack_tou(rule_id: int, enabled: bool, start, end, target_soc: int, power: int,
+             weekdays: list[str] | None = None, date_start=(1, 1), date_end=(12, 31)) -> list[int]:
+    days = weekdays if weekdays else WEEKDAYS
+    bits = sum(1 << WEEKDAYS.index(d) for d in days)
+    return ([rule_id, 1 if enabled else 0, hhmm(start), hhmm(end), int(target_soc)]
+            + pack_u32(abs(power))
+            + [(date_start[0] << 8) | date_start[1], (date_end[0] << 8) | date_end[1], bits])

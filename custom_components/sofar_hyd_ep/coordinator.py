@@ -37,9 +37,28 @@ from .registers import (
     action_to_passive,
     decode,
     known_runs,
+    ACTION_AUTO,
+    ACTION_NO_DISCHARGE,
+    MODE_TIMING,
+    MODE_TOU,
+    REG_TIMING_BLOCK,
+    REG_TIMING_CONTROL,
+    REG_TOU_BLOCK,
+    REG_TOU_CONTROL,
     pack_passive,
     pack_time,
+    pack_timing,
+    pack_tou,
 )
+from .schedule import active_slot, is_expired, make_slot, target
+
+
+def _naive(value):
+    """Datetimes from services may carry a tz: convert to local naive."""
+    from datetime import datetime
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return dt_util.as_local(value).replace(tzinfo=None)
+    return value
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -130,6 +149,22 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         self.action_power: int = int(self.max_battery_power)
         self._last_passive: tuple[int, int, int] | None = None
         self._last_auto_sync: float = 0.0
+        # Native slot 1 settings shown as entities (restored by the entities).
+        self.native: dict = {
+            "timing_charge_enabled": False, "timing_discharge_enabled": False,
+            "timing_charge_start": "02:00", "timing_charge_end": "05:00",
+            "timing_discharge_start": "16:00", "timing_discharge_end": "19:00",
+            "timing_charge_power": DEFAULT_MAX_BATTERY_POWER,
+            "timing_discharge_power": DEFAULT_MAX_BATTERY_POWER,
+            "tou_enabled": True, "tou_start": "00:30", "tou_end": "04:30",
+            "tou_target_soc": 100, "tou_power": DEFAULT_MAX_BATTERY_POWER,
+        }
+        # Home Assistant-driven slots.
+        self.slots: list[dict] = []
+        self.slot_store = None          # helpers.storage.Store, set in __init__.py
+        self.slot_status: str = "idle"
+        self._slot_applied: tuple[str, int] | None = None
+        self._slot_latched: set[str] = set()
 
     # ------------------------------------------------------------------ options
     @property
@@ -186,6 +221,8 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
                     _LOGGER.info("Sofar clock was %ss off, synced", data["clock_drift"])
                 except ModbusError as err:
                     _LOGGER.warning("Sofar clock auto-sync failed: %s", err)
+
+        await self._run_slots(data)
 
         if (
             self.keepalive
@@ -269,6 +306,132 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         await self._write(REG_REMOTE_ON_OFF, [1 if on else 0])
         await self.async_request_refresh()
 
+    # ------------------------------------------------------------------ native slots
+    async def async_apply_timing(self, slot: int, *, charge_enabled: bool, discharge_enabled: bool,
+                                 charge_start, charge_end, discharge_start, discharge_end,
+                                 charge_power: int, discharge_power: int, activate: bool = True) -> None:
+        values = pack_timing(slot - 1, charge_enabled, discharge_enabled, charge_start, charge_end,
+                             discharge_start, discharge_end,
+                             min(charge_power, self.max_battery_power),
+                             min(discharge_power, self.max_battery_power))
+        await self._apply_native(REG_TIMING_BLOCK, values, REG_TIMING_CONTROL,
+                                 MODE_TIMING if activate else None, f"Timing slot {slot}")
+
+    async def async_apply_tou(self, rule: int, *, enabled: bool, start, end, target_soc: int,
+                              power: int, weekdays: list[str] | None = None,
+                              activate: bool = True) -> None:
+        values = pack_tou(rule - 1, enabled, start, end, target_soc,
+                          min(power, self.max_battery_power), weekdays)
+        await self._apply_native(REG_TOU_BLOCK, values, REG_TOU_CONTROL,
+                                 MODE_TOU if activate else None, f"Time of use rule {rule}")
+
+    async def async_apply_native_slot1(self, kind: str) -> None:
+        n = self.native
+        if kind == "timing":
+            await self.async_apply_timing(
+                1, charge_enabled=n["timing_charge_enabled"], discharge_enabled=n["timing_discharge_enabled"],
+                charge_start=n["timing_charge_start"], charge_end=n["timing_charge_end"],
+                discharge_start=n["timing_discharge_start"], discharge_end=n["timing_discharge_end"],
+                charge_power=n["timing_charge_power"], discharge_power=n["timing_discharge_power"])
+        else:
+            await self.async_apply_tou(
+                1, enabled=n["tou_enabled"], start=n["tou_start"], end=n["tou_end"],
+                target_soc=n["tou_target_soc"], power=n["tou_power"])
+
+    async def _apply_native(self, block: int, values: list[int], control: int,
+                            mode: int | None, label: str) -> None:
+        if self.slots and mode is not None:
+            raise HomeAssistantError(
+                "Clear the Home Assistant slots first – they would override the inverter mode")
+        try:
+            readback = await write_native_block(self.client, block, values, control)
+        except ModbusError as err:
+            raise HomeAssistantError(f"{label}: {err}") from err
+        if readback is not None and readback != values[1:]:
+            _LOGGER.warning("%s read-back differs: wrote %s, inverter has %s",
+                            label, values[1:], readback)
+            raise HomeAssistantError(f"{label}: inverter stored different values – check the log")
+        _LOGGER.info("%s written%s", label, " and verified" if readback is not None else "")
+        if mode is not None:
+            await self._write(REG_STORAGE_MODE, [mode])
+        await self.async_request_refresh()
+
+    # ------------------------------------------------------------------ HA slots
+    async def async_add_slot(self, action: str, start, end, power: int | None,
+                             soc: int | None, daily: bool) -> dict:
+        now = dt_util.now().replace(tzinfo=None)
+        p = self.action_power if power is None else int(power)
+        p = max(0, min(p, self.max_battery_power))
+        try:
+            slot = make_slot(action, _naive(start), _naive(end), p, soc, daily, now)
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
+        self.slots.append(slot)
+        await self._save_slots()
+        await self.async_request_refresh()
+        return slot
+
+    async def async_clear_slots(self, slot_id: str | None = None) -> None:
+        before = len(self.slots)
+        self.slots = [s for s in self.slots if slot_id is not None and s["id"] != slot_id]
+        if slot_id is not None and len(self.slots) == before:
+            raise HomeAssistantError(f"No slot with id {slot_id}")
+        await self._save_slots()
+        await self.async_request_refresh()
+
+    async def _save_slots(self) -> None:
+        if self.slot_store is not None:
+            await self.slot_store.async_save(
+                {"slots": self.slots, "applied": self._slot_applied is not None})
+
+    async def _run_slots(self, data: dict) -> None:
+        now = dt_util.now().replace(tzinfo=None)
+        expired = [s for s in self.slots if is_expired(s, now)]
+        if expired:
+            self.slots = [s for s in self.slots if s not in expired]
+            self._slot_latched -= {s["id"] for s in expired}
+            await self._save_slots()
+
+        slot = active_slot(self.slots, now)
+        if slot is None:
+            self._slot_latched.clear()
+            self.slot_status = "idle"
+            if self._slot_applied is not None and await self._apply_action(ACTION_AUTO, 0):
+                self._slot_applied = None
+                await self._save_slots()
+            return
+
+        action, power = target(slot, data.get("battery_soc"))
+        if action == ACTION_NO_DISCHARGE:
+            self._slot_latched.add(slot["id"])
+        elif slot["id"] in self._slot_latched:  # SOC limit reached earlier: stay held
+            action, power = ACTION_NO_DISCHARGE, 0
+        self.slot_status = f"{slot['action']} ({slot['id']})" + (
+            " – SOC limit reached, holding" if action == ACTION_NO_DISCHARGE else "")
+        if self._slot_applied != (action, power):
+            first = self._slot_applied is None
+            if await self._apply_action(action, power):
+                self._slot_applied = (action, power)
+                if first:
+                    await self._save_slots()
+
+    async def _apply_action(self, action: str, power: int) -> bool:
+        """Write a battery action without triggering a refresh (used inside polling)."""
+        try:
+            values = action_to_passive(action, power, self.max_battery_power)
+            if values is None:
+                await self.client.write_registers(REG_STORAGE_MODE, [0])
+                self._last_passive = None
+            else:
+                await self.client.write_registers(REG_PASSIVE_BLOCK, pack_passive(*values))
+                self._last_passive = values
+                await self.client.write_registers(REG_STORAGE_MODE, [MODE_PASSIVE])
+            _LOGGER.info("Slot scheduler: %s %s W", action, power)
+            return True
+        except ModbusError as err:
+            _LOGGER.warning("Slot scheduler write failed (will retry): %s", err)
+            return False
+
     # ------------------------------------------------------------------ scan
     async def async_scan(self, ranges: list[tuple[int, int]] | None = None) -> dict[str, int | str]:
         """Read every register in the given ranges; unreadable ones are reported."""
@@ -294,3 +457,46 @@ async def scan_registers(client: SofarModbusClient, ranges) -> dict[str, int | s
                         result[f"0x{a:04X}"] = f"ERR{err.code}"
             addr += count
     return result
+
+
+async def write_native_block(client: SofarModbusClient, block: int, values: list[int],
+                             control: int) -> list[int] | None:
+    """Write a Timing/TOU rule in one frame, commit it and check the status.
+
+    Sofar only accepts these when written together, so first try one FC16
+    frame covering the rule *and* its control register (reserved registers in
+    between written as 0). If the inverter rejects that frame, fall back to
+    rule block + separate commit. Returns the read-back rule (registers after
+    the ID) or None if read-back isn't supported.
+    """
+    import asyncio
+
+    from .registers import CONTROL_STATUS
+
+    gap = control - (block + len(values))
+    try:
+        await client.write_registers(block, values + [0] * gap + [1])
+    except ModbusExceptionResponse:
+        await client.write_registers(block, values)
+        await client.write_registers(control, [1])
+
+    status = 0x0001
+    for _ in range(10):
+        try:
+            status = (await client.read_holding(control, 1))[0]
+        except ModbusExceptionResponse:
+            status = 0  # control register not readable on this firmware: assume ok
+            break
+        if status != 0x0001:
+            break
+        await asyncio.sleep(0.5)
+    if status not in (0x0000, 0x0001):
+        raise ModbusError(f"Inverter rejected the rule: {CONTROL_STATUS.get(status, hex(status))}")
+
+    # Read back: select the rule ID, then read its fields.
+    try:
+        await client.write_registers(block, [values[0]])
+        return await client.read_holding(block + 1, len(values) - 1)
+    except ModbusError as err:
+        _LOGGER.debug("Rule read-back not available: %s", err)
+        return None

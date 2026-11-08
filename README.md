@@ -67,6 +67,44 @@ Only one Modbus master should poll the inverter's RS485 port. Remove any other i
 | Passive desired grid power | importing | exporting |
 | Passive battery min/max | charging | discharging |
 
+## Charge / discharge time slots
+
+There are two ways to schedule the battery. Pick one at a time: Home Assistant slots switch the inverter to Passive mode, native slots switch it to Timing or Time of use.
+
+### Home Assistant slots (flexible)
+
+`sofar_hyd_ep.charge_slot` / `sofar_hyd_ep.discharge_slot` – start, end, optional power, optional SOC limit, optional daily repeat. When the SOC limit is reached the battery holds (no discharge) until the slot ends; afterwards the inverter goes back to Auto (self use). Slots survive restarts. The **Slot schedule** sensor shows what's running and lists all slots; **Clear scheduled slots** removes them.
+
+```yaml
+# Cheap-rate charge to 90 % every night
+service: sofar_hyd_ep.charge_slot
+data:
+  start: "00:30"
+  end: "04:30"
+  power: 3000
+  soc: 90
+  daily: true
+```
+
+```yaml
+# Discharge for an export event today, stop at 20 %
+service: sofar_hyd_ep.discharge_slot
+data:
+  start: "16:00"
+  end: "19:00"
+  power: 3000
+  soc: 20
+```
+
+Needs Home Assistant running – set a passive timeout if you want the inverter to fall back when it isn't.
+
+### Native inverter slots (runs on the inverter)
+
+* **Timing mode** – 4 slots, each with a charge window and a discharge window and their own power. Slot 1 has entities (times, powers, enable switches) and an **Apply timing slot 1** button; all 4 via `sofar_hyd_ep.set_timing_slot`.
+* **Time of use** – charge rules with a window, target SOC, power and weekdays. Rule 1 has entities and an **Apply time of use rule 1** button; rules 1–4 via `sofar_hyd_ep.set_tou_rule`.
+
+Applying writes the rule in one Modbus frame, commits it, checks the inverter's status reply, reads it back to verify, then switches the energy storage mode. These settings are stored in the inverter's EEPROM, so don't rewrite them from frequent automations.
+
 ## Services
 
 * `sofar_hyd_ep.battery_action` – `action` + optional `power`.

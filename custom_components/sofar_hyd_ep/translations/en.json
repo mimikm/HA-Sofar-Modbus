@@ -217,6 +217,9 @@
       },
       "clock_drift": {
         "name": "Inverter clock drift"
+      },
+      "slot_schedule": {
+        "name": "Slot schedule"
       }
     },
     "binary_sensor": {
@@ -250,16 +253,66 @@
       },
       "passive_timeout": {
         "name": "Passive timeout"
+      },
+      "timing_charge_power": {
+        "name": "Timing slot 1 charge power"
+      },
+      "timing_discharge_power": {
+        "name": "Timing slot 1 discharge power"
+      },
+      "tou_power": {
+        "name": "Time of use rule 1 charge power"
+      },
+      "tou_target_soc": {
+        "name": "Time of use rule 1 target SOC"
       }
     },
     "switch": {
       "remote_on_off": {
         "name": "Inverter on"
+      },
+      "timing_charge_enabled": {
+        "name": "Timing slot 1 charge"
+      },
+      "timing_discharge_enabled": {
+        "name": "Timing slot 1 discharge"
+      },
+      "tou_enabled": {
+        "name": "Time of use rule 1"
       }
     },
     "button": {
       "sync_clock": {
         "name": "Sync inverter clock"
+      },
+      "apply_timing": {
+        "name": "Apply timing slot 1"
+      },
+      "apply_tou": {
+        "name": "Apply time of use rule 1"
+      },
+      "clear_slots": {
+        "name": "Clear scheduled slots"
+      }
+    },
+    "time": {
+      "timing_charge_start": {
+        "name": "Timing slot 1 charge start"
+      },
+      "timing_charge_end": {
+        "name": "Timing slot 1 charge end"
+      },
+      "timing_discharge_start": {
+        "name": "Timing slot 1 discharge start"
+      },
+      "timing_discharge_end": {
+        "name": "Timing slot 1 discharge end"
+      },
+      "tou_start": {
+        "name": "Time of use rule 1 start"
+      },
+      "tou_end": {
+        "name": "Time of use rule 1 end"
       }
     }
   },
@@ -319,6 +372,172 @@
         "count": {
           "name": "Count",
           "description": "Number of registers from the start address."
+        }
+      }
+    },
+    "charge_slot": {
+      "name": "Add charge slot",
+      "description": "Force-charge the battery during a time window (Home Assistant-driven, passive mode). Returns to Auto when the slot ends.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Inverter",
+          "description": "Leave empty if you only have one."
+        },
+        "start": {
+          "name": "Start",
+          "description": "Time (HH:MM) or date and time."
+        },
+        "end": {
+          "name": "End",
+          "description": "Time (HH:MM) or date and time. Overnight windows are fine."
+        },
+        "power": {
+          "name": "Power",
+          "description": "W. Defaults to the Battery action power number."
+        },
+        "soc": {
+          "name": "SOC limit",
+          "description": "Charge: stop at this SOC. Discharge: stop at this SOC. The battery then holds until the slot ends."
+        },
+        "daily": {
+          "name": "Repeat daily",
+          "description": "Run every day instead of once."
+        }
+      }
+    },
+    "discharge_slot": {
+      "name": "Add discharge slot",
+      "description": "Force-discharge the battery during a time window (Home Assistant-driven, passive mode). Returns to Auto when the slot ends.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Inverter",
+          "description": "Leave empty if you only have one."
+        },
+        "start": {
+          "name": "Start",
+          "description": "Time (HH:MM) or date and time."
+        },
+        "end": {
+          "name": "End",
+          "description": "Time (HH:MM) or date and time. Overnight windows are fine."
+        },
+        "power": {
+          "name": "Power",
+          "description": "W. Defaults to the Battery action power number."
+        },
+        "soc": {
+          "name": "SOC limit",
+          "description": "Charge: stop at this SOC. Discharge: stop at this SOC. The battery then holds until the slot ends."
+        },
+        "daily": {
+          "name": "Repeat daily",
+          "description": "Run every day instead of once."
+        }
+      }
+    },
+    "clear_slots": {
+      "name": "Clear slots",
+      "description": "Remove one or all Home Assistant-driven slots.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Inverter",
+          "description": "Leave empty if you only have one."
+        },
+        "slot_id": {
+          "name": "Slot ID",
+          "description": "Leave empty to clear all."
+        }
+      }
+    },
+    "set_timing_slot": {
+      "name": "Set inverter timing slot",
+      "description": "Write one of the inverter's 4 built-in timing slots (runs on the inverter even if Home Assistant is down).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Inverter",
+          "description": "Leave empty if you only have one."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "1–4. Lower number wins when slots overlap."
+        },
+        "charge_enabled": {
+          "name": "Charge enabled",
+          "description": "Enable the charge window."
+        },
+        "charge_start": {
+          "name": "Charge start",
+          "description": "HH:MM"
+        },
+        "charge_end": {
+          "name": "Charge end",
+          "description": "HH:MM"
+        },
+        "charge_power": {
+          "name": "Charge power",
+          "description": "W"
+        },
+        "discharge_enabled": {
+          "name": "Discharge enabled",
+          "description": "Enable the discharge window."
+        },
+        "discharge_start": {
+          "name": "Discharge start",
+          "description": "HH:MM"
+        },
+        "discharge_end": {
+          "name": "Discharge end",
+          "description": "HH:MM"
+        },
+        "discharge_power": {
+          "name": "Discharge power",
+          "description": "W"
+        },
+        "activate": {
+          "name": "Switch to timing mode",
+          "description": "Set the energy storage mode to Timing after writing."
+        }
+      }
+    },
+    "set_tou_rule": {
+      "name": "Set inverter time of use rule",
+      "description": "Write one of the inverter's time of use charge rules (charge in a window up to a target SOC).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Inverter",
+          "description": "Leave empty if you only have one."
+        },
+        "rule": {
+          "name": "Rule",
+          "description": "1–4. Lower number wins when rules overlap."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Enable this rule."
+        },
+        "start": {
+          "name": "Start",
+          "description": "HH:MM"
+        },
+        "end": {
+          "name": "End",
+          "description": "HH:MM"
+        },
+        "target_soc": {
+          "name": "Target SOC",
+          "description": "Stop charging at this SOC (30–100)."
+        },
+        "power": {
+          "name": "Charge power",
+          "description": "W"
+        },
+        "weekdays": {
+          "name": "Weekdays",
+          "description": "Days the rule runs. Leave empty for every day."
+        },
+        "activate": {
+          "name": "Switch to time of use mode",
+          "description": "Set the energy storage mode to Time of use after writing."
         }
       }
     }
