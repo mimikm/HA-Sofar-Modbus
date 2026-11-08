@@ -39,7 +39,7 @@ These older inverters use a different register map and a non-standard Modbus com
 * You get readings (grid, battery, load, PV on the HYD-ES, energy totals), **Battery action** (Auto, Force charge, Force discharge, Pause) and Home Assistant **charge/discharge slots**. Hold (no discharge) maps to Pause. The forced command is re-sent every poll.
 * Not available on these models: passive set-points, native Timing / Time of use slots, inverter clock, remote on/off.
 
-Have one? Please test and report in the [legacy testing issue](https://github.com/mimikm/HA-Sofar-Modbus/issues) with a diagnostics download.
+Have one? Please test and report in the [legacy testing issue](https://github.com/mimikm/HA-Sofar-Modbus/issues/1) with a diagnostics download.
 
 ### How detection works
 
