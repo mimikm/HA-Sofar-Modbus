@@ -35,11 +35,10 @@ from .modbus import FRAMING_RTU_OVER_TCP, FRAMING_TCP, ModbusError, SofarModbusC
 from .detect import UnsupportedInverter, detect
 
 def _box(lo: int, hi: int, unit: str | None = None):
-    return vol.All(
-        NumberSelector(NumberSelectorConfig(min=lo, max=hi, step=1, mode=NumberSelectorMode.BOX,
-                                            unit_of_measurement=unit)),
-        vol.Coerce(int),
-    )
+    config = NumberSelectorConfig(min=lo, max=hi, step=1, mode=NumberSelectorMode.BOX)
+    if unit is not None:  # the selector rejects unit_of_measurement=None
+        config["unit_of_measurement"] = unit
+    return vol.All(NumberSelector(config), vol.Coerce(int))
 
 
 FRAMING_SELECTOR = SelectSelector(
@@ -62,9 +61,8 @@ async def _detect(data: dict) -> dict:
 class SofarConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
-    def __init__(self) -> None:
-        self._data: dict = {}
-        self._title = "Sofar"
+    _data: dict
+    _title: str = "Sofar"
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
