@@ -173,18 +173,89 @@ del R
 REG_BY_KEY: dict[str, Reg] = {r.key: r for r in REGISTERS}
 FAULT_RANGE = (0x0405, 0x0416)  # Fault1..Fault18
 
+# --------------------------------------------------------------------------- legacy storage map
+# ME3000SP / HYD 3-6K-ES ("ModBus-RTU protocol ME3000SP" v1.04). Same sign
+# conventions as the modern map: battery + = charging, grid + = exporting.
+# Keys reuse the modern names so entities, translations and derived values match.
+L = Reg
+LEGACY_REGISTERS: list[Reg] = [
+    L("sys_state", 0x0200),
+    L("grid_voltage", 0x0206, "u16", 0.1, kind="voltage", name="Grid voltage"),
+    L("grid_current", 0x0207, "i16", 0.01, kind="current", name="Grid current"),
+    L("grid_frequency", 0x020C, "u16", 0.01, kind="freq", name="Grid frequency"),
+    L("battery1_power", 0x020D, "i16", KW_TO_W, group="battery"),
+    L("battery_voltage", 0x020E, "u16", 0.1, kind="voltage", name="Battery voltage", group="battery"),
+    L("battery_current", 0x020F, "i16", 0.01, kind="current", name="Battery current", group="battery"),
+    L("battery1_soc", 0x0210, group="battery"),
+    L("battery_temperature", 0x0211, "i16", kind="temp", name="Battery temperature", group="battery"),
+    L("grid_power", 0x0212, "i16", KW_TO_W, kind="power", name="Grid power"),
+    L("load_power", 0x0213, "u16", KW_TO_W, kind="power", name="House load power"),
+    L("inverter_power", 0x0214, "i16", KW_TO_W, kind="power", name="Inverter AC power"),
+    L("pv_total_power_reg", 0x0215, "u16", KW_TO_W, group="pvtotal"),
+    L("eps_voltage", 0x0216, "u16", 0.1, kind="voltage", name="EPS voltage", enabled=False),
+    L("eps_power", 0x0217, "u16", KW_TO_W, kind="power", name="EPS power"),
+    L("pv_energy_today", 0x0218, "u16", 0.01, kind="energy", name="PV energy today"),
+    L("export_energy_today", 0x0219, "u16", 0.01, kind="energy", name="Grid export today"),
+    L("import_energy_today", 0x021A, "u16", 0.01, kind="energy", name="Grid import today"),
+    L("load_energy_today", 0x021B, "u16", 0.01, kind="energy", name="House load energy today"),
+    L("pv_energy_total", 0x021C, "u32", 1.0, kind="energy", name="PV energy total"),
+    L("export_energy_total", 0x021E, "u32", 1.0, kind="energy", name="Grid export total"),
+    L("import_energy_total", 0x0220, "u32", 1.0, kind="energy", name="Grid import total"),
+    L("load_energy_total", 0x0222, "u32", 1.0, kind="energy", name="House load energy total"),
+    L("countdown", 0x022A, kind="duration_s", name="Countdown", enabled=False, diag=True),
+    L("battery_cycles", 0x022C, kind="count", name="Battery cycles", group="battery"),
+    L("battery_soh", 0x0237, kind="pct", name="Battery SOH", group="battery"),
+    L("temp_inverter", 0x0238, "i16", kind="temp", name="Inverter temperature", diag=True),
+    L("temp_heatsink", 0x0239, "i16", kind="temp", name="Heatsink temperature", diag=True),
+    L("generation_time_today", 0x0243, kind="duration_min", name="Generation time today", diag=True),
+    L("pv1_voltage", 0x0250, "u16", 0.1, kind="voltage", name="PV1 voltage", group="pv1"),
+    L("pv1_current", 0x0251, "u16", 0.01, kind="current", name="PV1 current", group="pv1"),
+    L("pv1_power", 0x0252, "u16", KW_TO_W, kind="power", name="PV1 power", group="pv1"),
+    L("pv2_voltage", 0x0253, "u16", 0.1, kind="voltage", name="PV2 voltage", group="pv2"),
+    L("pv2_current", 0x0254, "u16", 0.01, kind="current", name="PV2 current", group="pv2"),
+    L("pv2_power", 0x0255, "u16", KW_TO_W, kind="power", name="PV2 power", group="pv2"),
+]
+del L
+
+LEGACY_STATES = {
+    0: "Waiting",
+    1: "Checking charge",
+    2: "Charging",
+    3: "Checking discharge",
+    4: "Discharging",
+    5: "EPS",
+    6: "Fault",
+    7: "Permanent fault",
+}
+
+# Passive commands (non-standard function code 0x42; inverter must be set to
+# Passive mode on its own display).
+LEGACY_FC_PASSIVE = 0x42
+LEGACY_CMD_STANDBY = 0x0100   # value 0x5555
+LEGACY_CMD_DISCHARGE = 0x0101  # value = W
+LEGACY_CMD_CHARGE = 0x0102     # value = W
+LEGACY_CMD_AUTO = 0x0103       # value 0
+LEGACY_STANDBY_VALUE = 0x5555
+
+FAMILY_TABLES: dict[str, dict] = {}
+
 # Registers every modern Sofar must answer; used when masks are unavailable.
 CORE_GROUPS = {"core", "clock"}
 
 
-def reg_addresses(keys) -> set[int]:
+def table(family: str = "modern") -> dict:
+    return FAMILY_TABLES[family]
+
+
+def reg_addresses(keys, family: str = "modern") -> set[int]:
+    t = table(family)
     out: set[int] = set()
     for k in keys:
-        r = REG_BY_KEY.get(k)
+        r = t["by_key"].get(k)
         if r:
             out.update(range(r.address, r.address + r.size))
     if "sys_state" in keys:
-        out.update(range(FAULT_RANGE[0], FAULT_RANGE[1] + 1))
+        out.update(range(t["faults"][0], t["faults"][1] + 1))
     return out
 
 
@@ -205,15 +276,15 @@ def runs(addresses, max_gap: int = 6, max_len: int = 40) -> list[tuple[int, int]
     return out
 
 
-def make_blocks(keys) -> tuple[list[tuple[str, int, int, bool]], dict[str, set[int]]]:
+def make_blocks(keys, family: str = "modern") -> tuple[list[tuple[str, int, int, bool]], dict[str, set[int]]]:
     """Polling blocks + the addresses each block actually needs (for fallback reads)."""
-    wanted = reg_addresses(keys)
+    wanted = reg_addresses(keys, family)
     blocks, need = [], {}
     for start, count in runs(wanted):
         name = f"0x{start:04X}"
         blocks.append((name, start, count, True))
         need[name] = {a for a in wanted if start <= a < start + count}
-    for start, count in INFO_RANGES:
+    for start, count in table(family)["info"]:
         name = f"info_0x{start:04X}"
         blocks.append((name, start, count, False))
         need[name] = set(range(start, start + count))
@@ -229,6 +300,17 @@ def known_runs(start: int, count: int, wanted: set[int] | None = None) -> list[t
                 wanted = set(range(s0, s0 + c0))
     return runs(wanted, max_gap=0, max_len=1000)
 
+
+FAMILY_TABLES.update({
+    "modern": {"registers": REGISTERS, "by_key": REG_BY_KEY, "faults": FAULT_RANGE,
+               "info": INFO_RANGES, "scan": SCAN_RANGES},
+    "legacy_storage": {"registers": LEGACY_REGISTERS,
+                       "by_key": {r.key: r for r in LEGACY_REGISTERS},
+                       "faults": (0x0201, 0x0205),
+                       "info": [(0x2001, 7), (0x2008, 4)],
+                       "scan": [(0x0200, 0x0245), (0x0250, 0x0255), (0x1040, 0x1042),
+                                (0x10B0, 0x10BC), (0x2000, 0x200B)]},
+})
 
 # Default blocks for a full single-phase hybrid (used before/without a profile).
 DEFAULT_KEYS = [r.key for r in REGISTERS
@@ -292,10 +374,11 @@ def _ascii(words: list[int]) -> str:
     return out.replace(b"\x00", b"").decode("ascii", "replace").strip()
 
 
-def decode(raw: dict[int, int]) -> dict:
+def decode(raw: dict[int, int], family: str = "modern") -> dict:
     """Turn {address: word} into {key: value}. Missing registers -> None."""
+    t = table(family)
     data: dict = {}
-    for reg in REGISTERS:
+    for reg in t["registers"]:
         hi = raw.get(reg.address)
         if hi is None or (reg.size == 2 and raw.get(reg.address + 1) is None):
             data[reg.key] = None
@@ -315,7 +398,8 @@ def decode(raw: dict[int, int]) -> dict:
     # Faults: list of "FaultN bitB" for every set bit.
     faults = []
     have_faults = False
-    for idx, addr in enumerate(range(FAULT_RANGE[0], FAULT_RANGE[1] + 1), start=1):
+    fr = t["faults"]
+    for idx, addr in enumerate(range(fr[0], fr[1] + 1), start=1):
         word = raw.get(addr)
         if word is None:
             continue
@@ -328,7 +412,8 @@ def decode(raw: dict[int, int]) -> dict:
 
     # Derived
     st = data.get("sys_state")
-    data["sys_state_text"] = SYS_STATES.get(st) if st is not None else None
+    states = LEGACY_STATES if family == "legacy_storage" else SYS_STATES
+    data["sys_state_text"] = states.get(st) if st is not None else None
     m = data.get("energy_storage_mode")
     data["energy_storage_mode_text"] = STORAGE_MODES.get(m) if m is not None else None
     a = data.get("passive_timeout_action")
@@ -364,12 +449,18 @@ def decode(raw: dict[int, int]) -> dict:
     data["battery_charge_power"] = None if b is None else max(b, 0)
     data["battery_discharge_power"] = None if b is None else max(-b, 0)
 
-    if 0x0445 in raw:
+    if family == "legacy_storage" and 0x2001 in raw:
+        data["serial"] = _ascii([raw.get(a, 0) for a in range(0x2001, 0x2008)])
+        sw = [raw.get(a) for a in (0x2008, 0x2009)]
+        hw = [raw.get(a) for a in (0x200A, 0x200B)]
+        data["sw_version"] = "-".join(f"{w:04X}" for w in sw) if None not in sw else None
+        data["hw_version"] = "-".join(f"{w:04X}" for w in hw) if None not in hw else None
+    if family == "modern" and 0x0445 in raw:
         data["serial"] = _ascii([raw.get(a, 0) for a in range(0x0445, 0x044C)])
         data["hw_version"] = _ascii([raw.get(a, 0) for a in (0x044D, 0x044E)])
         data["sw_version"] = _sw(raw, 0x044F)
         data["sw_version_master"] = _sw(raw, 0x0453)
-    data["battery_action"] = battery_action(data)
+    data["battery_action"] = battery_action(data) if family == "modern" else None
     data["inverter_clock"] = clock(data)
     return data
 

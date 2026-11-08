@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Sofar inverter via Modbus gateway",
-        "description": "Enter the IP gateway's address. Use 'Modbus TCP' if the gateway converts Modbus TCP to RTU, or 'RTU over TCP' if it is in transparent mode. The integration then detects which Sofar model and features you have.",
+        "description": "Enter the IP gateway's address. Use 'Modbus TCP' if the gateway converts Modbus TCP to RTU, or 'RTU over TCP' if it is in transparent mode (required for battery control on ME3000SP / HYD-ES). The integration then detects which Sofar model and features you have.",
         "data": {
           "name": "Name",
           "host": "Gateway IP address",

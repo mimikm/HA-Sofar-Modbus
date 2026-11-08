@@ -20,7 +20,7 @@ from homeassistant.const import (
 )
 
 from .entity import SofarEntity
-from .registers import REGISTERS, SYS_STATES
+from .registers import LEGACY_STATES, SYS_STATES, table
 
 M = SensorStateClass.MEASUREMENT
 TI = SensorStateClass.TOTAL_INCREASING
@@ -62,7 +62,8 @@ KINDS: dict[str, dict] = {
 # Derived sensors: (key, kind, required register keys (any of), extra kwargs)
 DERIVED: list[tuple[str, str | None, tuple[str, ...], dict]] = [
     ("sys_state_text", None, ("sys_state",),
-     dict(device_class=SensorDeviceClass.ENUM, options=list(SYS_STATES.values()))),
+     dict(device_class=SensorDeviceClass.ENUM,
+          options=list(dict.fromkeys([*SYS_STATES.values(), *LEGACY_STATES.values()])))),
     ("pv_power", "power", ("pv1_power", "pv_total_power_reg"), {}),
     ("grid_import_power", "power", ("grid_power",), {}),
     ("grid_export_power", "power", ("grid_power",), {}),
@@ -83,7 +84,7 @@ DERIVED: list[tuple[str, str | None, tuple[str, ...], dict]] = [
 
 def descriptions(coordinator) -> list[SensorEntityDescription]:
     out = []
-    for r in REGISTERS:
+    for r in table(coordinator.family)["registers"]:
         if r.kind is None or not coordinator.has(r.key):
             continue
         kw = dict(KINDS[r.kind])

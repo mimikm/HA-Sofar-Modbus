@@ -15,6 +15,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
     if not c.hybrid:
         return
     rated = c.max_battery_power
+    if not c.modern:
+        async_add_entities([ActionPowerNumber(c)])
+        return
     async_add_entities([
         PassiveNumber(c, "passive_grid_power", -GRID_LIMIT, GRID_LIMIT),
         PassiveNumber(c, "passive_battery_min", -rated, rated),

@@ -7,8 +7,6 @@ from __future__ import annotations
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.const import CONF_HOST
 
-from .coordinator import scan_registers
-from .registers import SCAN_RANGES
 
 TO_REDACT = {CONF_HOST, "serial", "unique_id"}
 
@@ -26,7 +24,7 @@ def _clean(value):
 async def async_get_config_entry_diagnostics(hass, entry) -> dict:
     c = entry.runtime_data
     try:
-        dump = await scan_registers(c.client, SCAN_RANGES)
+        dump = await c.async_scan()
     except Exception as err:  # noqa: BLE001
         dump = {"error": str(err)}
     return {

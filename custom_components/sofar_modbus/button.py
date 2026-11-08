@@ -13,7 +13,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
     if c.has("clock_year"):
         entities.append(SyncClockButton(c))
     if c.hybrid:
-        entities += [ApplyNativeButton(c, "timing"), ApplyNativeButton(c, "tou"), ClearSlotsButton(c)]
+        entities.append(ClearSlotsButton(c))
+    if c.hybrid and c.modern:
+        entities += [ApplyNativeButton(c, "timing"), ApplyNativeButton(c, "tou")]
     async_add_entities(entities)
 
 

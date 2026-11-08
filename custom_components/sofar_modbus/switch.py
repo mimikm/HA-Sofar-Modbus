@@ -11,7 +11,7 @@ from .entity import SofarEntity
 async def async_setup_entry(hass, entry, async_add_entities):
     c = entry.runtime_data
     entities = [RemoteOnOff(c)] if c.has("remote_on_off") else []
-    if c.hybrid:
+    if c.hybrid and c.modern:
         entities += [NativeSwitch(c, k) for k in
                      ("timing_charge_enabled", "timing_discharge_enabled", "tou_enabled")]
     async_add_entities(entities)

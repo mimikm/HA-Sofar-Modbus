@@ -14,7 +14,7 @@ KEYS = ["timing_charge_start", "timing_charge_end", "timing_discharge_start",
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    if entry.runtime_data.hybrid:
+    if entry.runtime_data.hybrid and entry.runtime_data.modern:
         async_add_entities(NativeTime(entry.runtime_data, k) for k in KEYS)
 
 

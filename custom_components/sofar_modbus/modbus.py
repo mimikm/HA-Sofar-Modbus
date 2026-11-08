@@ -9,8 +9,10 @@ break it. Supports two framings:
 * ``rtu_over_tcp`` – raw RTU frames with CRC sent over a TCP socket. Use when
                     the gateway is in transparent / "None" protocol mode.
 
-Only the function codes the Sofar EP protocol documents are used:
-0x03 (read holding registers) and 0x10 (write multiple registers).
+Function codes: 0x03 (read holding registers), 0x10 (write multiple
+registers) and, for older ME3000SP / HYD-ES inverters, Sofar's non-standard
+0x42 passive-mode command. Gateways in Modbus TCP conversion mode often drop
+0x42; use RTU over TCP (transparent mode) for those inverters.
 """
 from __future__ import annotations
 
@@ -137,6 +139,15 @@ class SofarModbusClient:
                 f"Write echo mismatch: 0x{r_addr:04X}/{r_count} != 0x{address:04X}/{count}"
             )
 
+    async def passive_command(self, register: int, value: int) -> int:
+        """Sofar legacy passive command (FC 0x42). Returns the status word."""
+        pdu = struct.pack(">BHH", 0x42, register, int(value) & 0xFFFF)
+        resp = await self._request(pdu)
+        # resp = byte_count + status (function code already stripped)
+        if len(resp) < 3:
+            raise ModbusError("Bad 0x42 response length")
+        return (resp[1] << 8) | resp[2]
+
     # ------------------------------------------------------------------ internals
     async def _request(self, pdu: bytes) -> bytes:
         """Send a PDU and return the response PDU. One retry on transport errors."""
@@ -201,7 +212,7 @@ class SofarModbusClient:
         unit, func = head[0], head[1]
         if func & 0x80:
             rest = await self._reader.readexactly(3)  # code + crc
-        elif func == 0x03:
+        elif func in (0x03, 0x42):
             byte_count = await self._reader.readexactly(1)
             rest = byte_count + await self._reader.readexactly(byte_count[0] + 2)
         elif func == 0x10:

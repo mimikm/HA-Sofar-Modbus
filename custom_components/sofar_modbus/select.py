@@ -10,8 +10,10 @@ from .registers import BATTERY_ACTIONS, STORAGE_MODES, TIMEOUT_ACTIONS
 
 async def async_setup_entry(hass, entry, async_add_entities):
     c = entry.runtime_data
-    if c.hybrid:
+    if c.modern and c.hybrid:
         async_add_entities([StorageModeSelect(c), BatteryActionSelect(c), TimeoutActionSelect(c)])
+    elif c.hybrid:
+        async_add_entities([BatteryActionSelect(c)])
 
 
 class StorageModeSelect(SofarEntity, SelectEntity):
@@ -42,14 +44,19 @@ class BatteryActionSelect(SofarEntity, SelectEntity):
     @property
     def options(self) -> list[str]:
         cur = self.current_option
-        return BATTERY_ACTIONS + ([cur] if cur and cur not in BATTERY_ACTIONS else [])
+        actions = self.coordinator.battery_actions
+        return actions + ([cur] if cur and cur not in actions else [])
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success
 
     @property
     def current_option(self):
         return (self.coordinator.data or {}).get("battery_action")
 
     async def async_select_option(self, option: str) -> None:
-        if option in BATTERY_ACTIONS:
+        if option in self.coordinator.battery_actions:
             await self.coordinator.async_battery_action(option)
 
 

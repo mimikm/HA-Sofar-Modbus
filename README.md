@@ -26,13 +26,24 @@ It **autodetects** what your inverter has and only creates the entities that exi
 | Family | Models | Status |
 |---|---|---|
 | Modern protocol (0x0400+) | HYD 3–6K-EP, HYD 5–20K-3PH, KTL-X G3 / KTLM (PV-only), ZCS Azzurro rebadges | Supported |
-| Legacy storage protocol (0x0200+) | ME3000SP, HYD 3–6K-ES | Planned (v0.4) – setup tells you if you have one |
+| Legacy storage protocol (0x0200+) | ME3000SP, HYD 3–6K-ES | **Beta** (v0.4) – testers wanted |
 
 Tested on hardware: HYD 3680-EP. Other modern models are detected from the inverter's own channel configuration and address masks; please share a diagnostics download (below) if something looks wrong.
 
+### ME3000SP / HYD-ES (beta)
+
+These older inverters use a different register map and a non-standard Modbus command (function code 0x42) for battery control.
+
+* Set the gateway to **transparent mode** and choose **RTU over TCP** in setup. Many gateways in Modbus TCP conversion mode drop function 0x42 – readings work, battery control doesn't.
+* Set the inverter to **Passive mode** on its own display, otherwise it ignores battery commands.
+* You get readings (grid, battery, load, PV on the HYD-ES, energy totals), **Battery action** (Auto, Force charge, Force discharge, Pause) and Home Assistant **charge/discharge slots**. Hold (no discharge) maps to Pause. The forced command is re-sent every poll.
+* Not available on these models: passive set-points, native Timing / Time of use slots, inverter clock, remote on/off.
+
+Have one? Please test and report in the [legacy testing issue](https://github.com/mimikm/HA-Sofar-Modbus/issues) with a diagnostics download.
+
 ### How detection works
 
-1. Protocol family: the modern map answers at `0x0404`, the legacy map at `0x0200`.
+1. Protocol family: the modern map answers at `0x0404`, the legacy ME3000SP / HYD-ES map at `0x0200`.
 2. The inverter's input-channel config (`0x1011–0x1020`) says which DC inputs are PV strings and which are batteries.
 3. Live readings (L2 voltage, battery voltages) decide phases and battery count; the address mask at the start of each 64-register field fills in optional registers.
 4. Setup shows what it found before adding the device. Press **Re-detect inverter** after a firmware update or adding a battery.

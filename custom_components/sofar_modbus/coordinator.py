@@ -38,6 +38,7 @@ from .registers import (
     decode,
     known_runs,
     make_blocks,
+    table as family_table,
     ACTION_AUTO,
     ACTION_NO_DISCHARGE,
     MODE_TIMING,
@@ -48,6 +49,15 @@ from .registers import (
     REG_TOU_CONTROL,
     pack_passive,
     pack_time,
+    BATTERY_ACTIONS,
+    ACTION_CHARGE,
+    ACTION_DISCHARGE,
+    ACTION_PAUSE,
+    LEGACY_CMD_AUTO,
+    LEGACY_CMD_CHARGE,
+    LEGACY_CMD_DISCHARGE,
+    LEGACY_CMD_STANDBY,
+    LEGACY_STANDBY_VALUE,
     pack_timing,
     pack_tou,
 )
@@ -152,8 +162,12 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         )
         self.client = client
         self.profile: dict = dict(entry.data.get("profile") or {})
+        self.family: str = self.profile.get("family", "modern")
         keys = self.profile.get("registers") or DEFAULT_KEYS
-        self.blocks, self.block_needs = make_blocks(keys)
+        self.blocks, self.block_needs = make_blocks(keys, self.family)
+        # Legacy (ME3000SP / HYD-ES): no read-back of the passive command.
+        self.legacy_action: str | None = None
+        self.legacy_power: int = 0
         self.info: dict[int, int] = {}
         self.failed_blocks: list[str] = []
         self.small_blocks: set[str] = set()
@@ -190,6 +204,22 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
     def _require_hybrid(self) -> None:
         if not self.hybrid:
             raise HomeAssistantError("This inverter has no battery input")
+
+    @property
+    def modern(self) -> bool:
+        return self.family == "modern"
+
+    def _require_modern(self) -> None:
+        self._require_hybrid()
+        if not self.modern:
+            raise HomeAssistantError(
+                "Not available on ME3000SP / HYD-ES inverters – use Battery action or slots")
+
+    @property
+    def battery_actions(self) -> list[str]:
+        if self.modern:
+            return list(BATTERY_ACTIONS)
+        return [ACTION_AUTO, ACTION_CHARGE, ACTION_DISCHARGE, ACTION_PAUSE]
 
     async def async_redetect(self) -> None:
         from .detect import detect
@@ -237,7 +267,10 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
             self.failed_blocks = failed
 
         raw.update(self.info)
-        data = decode(raw)
+        data = decode(raw, self.family)
+        if self.family == "legacy_storage":
+            data["battery_action"] = self.legacy_action
+            await self._legacy_keepalive()
 
         # Inverter clock: the inverter keeps local wall-clock time.
         inv = data.get("inverter_clock")
@@ -279,7 +312,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
             raise HomeAssistantError(f"Write to 0x{address:04X} failed: {err}") from err
 
     async def async_set_storage_mode(self, mode: int) -> None:
-        self._require_hybrid()
+        self._require_modern()
         await self._write(REG_STORAGE_MODE, [mode])
         if mode != MODE_PASSIVE:
             self._last_passive = None
@@ -287,7 +320,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
 
     async def async_set_passive(self, grid: int, bmin: int, bmax: int, ensure_mode: bool = True) -> None:
         """Write all three passive values in one FC16 frame, then enter passive mode."""
-        self._require_hybrid()
+        self._require_modern()
         if bmin > bmax:
             raise HomeAssistantError("battery_min must be <= battery_max")
         await self._write(REG_PASSIVE_BLOCK, pack_passive(grid, bmin, bmax))
@@ -316,13 +349,45 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         self._require_hybrid()
         power = self.action_power if power is None else int(power)
         power = max(0, min(power, self.max_battery_power))
+        if not self.modern:
+            try:
+                await self._legacy_command(action, power)
+            except ModbusError as err:
+                raise HomeAssistantError(f"Battery command failed: {err}") from err
+            await self.async_request_refresh()
+            return
         values = action_to_passive(action, power, self.max_battery_power)
         if values is None:
             await self.async_set_storage_mode(0)
         else:
             await self.async_set_passive(*values)
 
+    # ------------------------------------------------------------------ legacy control
+    async def _legacy_command(self, action: str, power: int) -> None:
+        """ME3000SP / HYD-ES passive command (FC 0x42). Hold maps to standby."""
+        if action == ACTION_AUTO:
+            reg, value = LEGACY_CMD_AUTO, 0
+        elif action == ACTION_CHARGE:
+            reg, value = LEGACY_CMD_CHARGE, power
+        elif action == ACTION_DISCHARGE:
+            reg, value = LEGACY_CMD_DISCHARGE, power
+        else:  # Pause / Hold (no discharge): standby is the closest the old protocol has
+            reg, value = LEGACY_CMD_STANDBY, LEGACY_STANDBY_VALUE
+            action, power = ACTION_PAUSE, 0
+        await self.client.passive_command(reg, value)
+        self.legacy_action, self.legacy_power = action, power
+        _LOGGER.info("Sofar legacy command: %s %s W", action, power)
+
+    async def _legacy_keepalive(self) -> None:
+        """Re-send the last forced command every poll (volatile, no EEPROM wear)."""
+        if self.legacy_action in (ACTION_CHARGE, ACTION_DISCHARGE, ACTION_PAUSE):
+            try:
+                await self._legacy_command(self.legacy_action, self.legacy_power)
+            except ModbusError as err:
+                _LOGGER.warning("Legacy command re-send failed: %s", err)
+
     async def async_set_passive_timeout(self, seconds: int | None = None, action: int | None = None) -> None:
+        self._require_modern()
         d = self.data or {}
         sec = int(seconds if seconds is not None else d.get("passive_timeout") or 0)
         act = int(action if action is not None else d.get("passive_timeout_action") or 0)
@@ -342,6 +407,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         await self.async_request_refresh()
 
     async def async_set_remote_on(self, on: bool) -> None:
+        self._require_modern()
         await self._write(REG_REMOTE_ON_OFF, [1 if on else 0])
         await self.async_request_refresh()
 
@@ -379,7 +445,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
 
     async def _apply_native(self, block: int, values: list[int], control: int,
                             mode: int | None, label: str) -> None:
-        self._require_hybrid()
+        self._require_modern()
         if self.slots and mode is not None:
             raise HomeAssistantError(
                 "Clear the Home Assistant slots first – they would override the inverter mode")
@@ -459,6 +525,9 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
     async def _apply_action(self, action: str, power: int) -> bool:
         """Write a battery action without triggering a refresh (used inside polling)."""
         try:
+            if not self.modern:
+                await self._legacy_command(action, power)
+                return True
             values = action_to_passive(action, power, self.max_battery_power)
             if values is None:
                 await self.client.write_registers(REG_STORAGE_MODE, [0])
@@ -476,7 +545,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
     # ------------------------------------------------------------------ scan
     async def async_scan(self, ranges: list[tuple[int, int]] | None = None) -> dict[str, int | str]:
         """Read every register in the given ranges; unreadable ones are reported."""
-        return await scan_registers(self.client, ranges or SCAN_RANGES)
+        return await scan_registers(self.client, ranges or family_table(self.family)["scan"])
 
 
 async def scan_registers(client: SofarModbusClient, ranges) -> dict[str, int | str]:

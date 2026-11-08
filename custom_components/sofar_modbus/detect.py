@@ -23,6 +23,7 @@ from .registers import (
     decode,
     reg_addresses,
     runs,
+    table,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -169,6 +170,29 @@ def build_profile(values: dict[int, int], masks: dict[int, int | None],
     }
 
 
+def build_profile_legacy(values: dict[int, int]) -> dict:
+    """ME3000SP / HYD-ES: single phase, one battery; PV only on the HYD-ES."""
+    t = table(FAMILY_LEGACY_STORAGE)
+    keys = [r.key for r in t["registers"]
+            if all(a in values for a in range(r.address, r.address + r.size))]
+    pv_inputs = sum(1 for k in ("pv1_voltage", "pv2_voltage") if k in keys)
+    if pv_inputs:
+        model = f"HYD-ES type hybrid (legacy protocol), {pv_inputs} PV input{'s' if pv_inputs != 1 else ''}"
+    else:
+        model = "ME3000SP type AC storage (legacy protocol)"
+    return {
+        "family": FAMILY_LEGACY_STORAGE,
+        "phases": 1,
+        "pv_inputs": pv_inputs,
+        "battery_inputs": 1,
+        "hybrid": True,
+        "model": model,
+        "registers": keys,
+        "masks": {},
+        "channels": None,
+    }
+
+
 async def detect(client: SofarModbusClient) -> dict:
     """Probe the inverter and return a profile dict (JSON-serialisable)."""
     try:
@@ -178,7 +202,7 @@ async def detect(client: SofarModbusClient) -> dict:
             await client.read_holding(0x0200, 1)
         except ModbusError:
             raise err from None
-        raise UnsupportedInverter(FAMILY_LEGACY_STORAGE) from None
+        return await _detect_legacy(client)
 
     masks: dict[int, int | None] = {}
     for field in MASK_FIELDS:
@@ -204,4 +228,18 @@ async def detect(client: SofarModbusClient) -> dict:
     profile["serial"] = info.get("serial") or None
     profile["sw_version"] = info.get("sw_version")
     _LOGGER.info("Sofar detected: %s (%d registers)", profile["model"], len(profile["registers"]))
+    return profile
+
+
+async def _detect_legacy(client: SofarModbusClient) -> dict:
+    t = table(FAMILY_LEGACY_STORAGE)
+    candidates = reg_addresses([r.key for r in t["registers"]], FAMILY_LEGACY_STORAGE)
+    for s0, c0 in t["info"]:
+        candidates.update(range(s0, s0 + c0))
+    values = await read_values(client, candidates)
+    profile = build_profile_legacy(values)
+    info = decode(values, FAMILY_LEGACY_STORAGE)
+    profile["serial"] = info.get("serial") or None
+    profile["sw_version"] = info.get("sw_version")
+    _LOGGER.info("Sofar detected (legacy): %s (%d registers)", profile["model"], len(profile["registers"]))
     return profile
