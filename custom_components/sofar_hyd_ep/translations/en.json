@@ -1,0 +1,314 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sofar HYD-EP via Modbus gateway",
+        "description": "Enter the IP gateway's address. Use 'Modbus TCP' if the gateway converts Modbus TCP to RTU, or 'RTU over TCP' if it is in transparent mode.",
+        "data": {
+          "name": "Name",
+          "host": "Gateway IP address",
+          "port": "Port",
+          "slave": "Inverter Modbus address",
+          "framing": "Gateway protocol"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure connection",
+        "data": {
+          "host": "Gateway IP address",
+          "port": "Port",
+          "slave": "Inverter Modbus address",
+          "framing": "Gateway protocol"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No answer from the inverter. Check IP/port, gateway protocol mode, serial settings (9600 8N1) and Modbus address."
+    },
+    "abort": {
+      "already_configured": "This inverter is already configured.",
+      "reconfigure_successful": "Connection updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "data": {
+          "scan_interval": "Polling interval (seconds)",
+          "max_battery_power": "Maximum battery power (W)",
+          "passive_keepalive": "Re-send passive set-points every poll (use with a passive timeout)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "framing": {
+      "options": {
+        "tcp": "Modbus TCP (gateway converts to RTU)",
+        "rtu_over_tcp": "RTU over TCP (transparent mode)"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sys_state_text": {
+        "name": "Inverter state"
+      },
+      "pv_power": {
+        "name": "PV power"
+      },
+      "pv1_power": {
+        "name": "PV1 power"
+      },
+      "pv2_power": {
+        "name": "PV2 power"
+      },
+      "grid_power": {
+        "name": "Grid power"
+      },
+      "grid_import_power": {
+        "name": "Grid import power"
+      },
+      "grid_export_power": {
+        "name": "Grid export power"
+      },
+      "battery_power": {
+        "name": "Battery power"
+      },
+      "battery_charge_power": {
+        "name": "Battery charge power"
+      },
+      "battery_discharge_power": {
+        "name": "Battery discharge power"
+      },
+      "load_power": {
+        "name": "House load power"
+      },
+      "inverter_power": {
+        "name": "Inverter AC power"
+      },
+      "eps_power": {
+        "name": "EPS power"
+      },
+      "pv_ext_power": {
+        "name": "External PV power"
+      },
+      "battery_soc": {
+        "name": "Battery SOC"
+      },
+      "battery_soh": {
+        "name": "Battery SOH"
+      },
+      "battery_cycles": {
+        "name": "Battery cycles"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "battery_current": {
+        "name": "Battery current"
+      },
+      "battery_temperature": {
+        "name": "Battery temperature"
+      },
+      "pv1_voltage": {
+        "name": "PV1 voltage"
+      },
+      "pv1_current": {
+        "name": "PV1 current"
+      },
+      "pv2_voltage": {
+        "name": "PV2 voltage"
+      },
+      "pv2_current": {
+        "name": "PV2 current"
+      },
+      "grid_voltage": {
+        "name": "Grid voltage"
+      },
+      "grid_current": {
+        "name": "Grid current"
+      },
+      "inverter_current": {
+        "name": "Inverter current"
+      },
+      "grid_frequency": {
+        "name": "Grid frequency"
+      },
+      "inverter_power_factor": {
+        "name": "Inverter power factor"
+      },
+      "eps_voltage": {
+        "name": "EPS voltage"
+      },
+      "eps_frequency": {
+        "name": "EPS frequency"
+      },
+      "pv_energy_today": {
+        "name": "PV energy today"
+      },
+      "pv_energy_total": {
+        "name": "PV energy total"
+      },
+      "load_energy_today": {
+        "name": "House load energy today"
+      },
+      "load_energy_total": {
+        "name": "House load energy total"
+      },
+      "import_energy_today": {
+        "name": "Grid import today"
+      },
+      "import_energy_total": {
+        "name": "Grid import total"
+      },
+      "export_energy_today": {
+        "name": "Grid export today"
+      },
+      "export_energy_total": {
+        "name": "Grid export total"
+      },
+      "battery_charge_today": {
+        "name": "Battery charge today"
+      },
+      "battery_charge_total": {
+        "name": "Battery charge total"
+      },
+      "battery_discharge_today": {
+        "name": "Battery discharge today"
+      },
+      "battery_discharge_total": {
+        "name": "Battery discharge total"
+      },
+      "temp_inverter": {
+        "name": "Inverter temperature"
+      },
+      "temp_heatsink": {
+        "name": "Heatsink temperature"
+      },
+      "temp_ambient": {
+        "name": "Ambient temperature"
+      },
+      "insulation_resistance": {
+        "name": "Insulation resistance"
+      },
+      "generation_time_today": {
+        "name": "Generation time today"
+      },
+      "countdown": {
+        "name": "Countdown"
+      },
+      "passive_grid_power": {
+        "name": "Passive desired grid power (read-back)"
+      },
+      "serial": {
+        "name": "Serial number"
+      },
+      "sw_version": {
+        "name": "Firmware (COM)"
+      },
+      "sw_version_master": {
+        "name": "Firmware (master)"
+      }
+    },
+    "binary_sensor": {
+      "fault_active": {
+        "name": "Fault"
+      }
+    },
+    "select": {
+      "energy_storage_mode": {
+        "name": "Energy storage mode"
+      },
+      "battery_action_select": {
+        "name": "Battery action"
+      },
+      "passive_timeout_action": {
+        "name": "Passive timeout action"
+      }
+    },
+    "number": {
+      "passive_grid_power": {
+        "name": "Passive desired grid power"
+      },
+      "passive_battery_min": {
+        "name": "Passive minimum battery power"
+      },
+      "passive_battery_max": {
+        "name": "Passive maximum battery power"
+      },
+      "battery_action_power": {
+        "name": "Battery action power"
+      },
+      "passive_timeout": {
+        "name": "Passive timeout"
+      }
+    },
+    "switch": {
+      "remote_on_off": {
+        "name": "Inverter on"
+      }
+    }
+  },
+  "services": {
+    "set_passive": {
+      "name": "Set passive mode",
+      "description": "Write desired grid power and battery min/max power together, then switch to passive mode. Battery: + charge, - discharge. Grid: + import, - export.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Inverter",
+          "description": "Leave empty if you only have one."
+        },
+        "grid_power": {
+          "name": "Desired grid power",
+          "description": "+ import from grid, - export."
+        },
+        "battery_min": {
+          "name": "Minimum battery power",
+          "description": "+ charge, - discharge."
+        },
+        "battery_max": {
+          "name": "Maximum battery power",
+          "description": "+ charge, - discharge."
+        }
+      }
+    },
+    "battery_action": {
+      "name": "Battery action",
+      "description": "Force charge, force discharge, pause, hold, or return to self-use.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Inverter",
+          "description": "Leave empty if you only have one."
+        },
+        "action": {
+          "name": "Action",
+          "description": "What the battery should do."
+        },
+        "power": {
+          "name": "Power",
+          "description": "Charge/discharge power in W. Defaults to the Battery action power number."
+        }
+      }
+    },
+    "scan_registers": {
+      "name": "Scan registers",
+      "description": "Read every known register range (or one range) and save a dump to the config folder.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Inverter",
+          "description": "Leave empty if you only have one."
+        },
+        "start": {
+          "name": "Start address",
+          "description": "Decimal start address (e.g. 1600 = 0x0640). Leave empty for a full scan."
+        },
+        "count": {
+          "name": "Count",
+          "description": "Number of registers from the start address."
+        }
+      }
+    }
+  }
+}

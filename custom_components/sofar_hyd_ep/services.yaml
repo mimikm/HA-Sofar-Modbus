@@ -1,0 +1,57 @@
+set_passive:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: sofar_hyd_ep
+    grid_power:
+      required: true
+      example: 0
+      selector:
+        number: {min: -10000, max: 10000, step: 10, unit_of_measurement: W, mode: box}
+    battery_min:
+      required: true
+      example: -3000
+      selector:
+        number: {min: -10000, max: 10000, step: 10, unit_of_measurement: W, mode: box}
+    battery_max:
+      required: true
+      example: 3000
+      selector:
+        number: {min: -10000, max: 10000, step: 10, unit_of_measurement: W, mode: box}
+
+battery_action:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: sofar_hyd_ep
+    action:
+      required: true
+      selector:
+        select:
+          options:
+            - "Auto (self use)"
+            - "Force charge"
+            - "Force discharge"
+            - "Pause battery"
+            - "Hold (no discharge)"
+    power:
+      example: 2000
+      selector:
+        number: {min: 0, max: 10000, step: 50, unit_of_measurement: W, mode: slider}
+
+scan_registers:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: sofar_hyd_ep
+    start:
+      example: 1600
+      selector:
+        number: {min: 0, max: 65535, mode: box}
+    count:
+      example: 64
+      selector:
+        number: {min: 1, max: 2048, mode: box}

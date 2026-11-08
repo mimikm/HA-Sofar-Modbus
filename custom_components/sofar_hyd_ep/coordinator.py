@@ -1,0 +1,213 @@
+"""Polling coordinator + write helpers."""
+from __future__ import annotations
+
+from datetime import timedelta
+import logging
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+
+from .const import (
+    CONF_KEEPALIVE,
+    CONF_MAX_BATTERY_POWER,
+    CONF_SCAN_INTERVAL,
+    DEFAULT_KEEPALIVE,
+    DEFAULT_MAX_BATTERY_POWER,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+)
+from .modbus import ModbusError, ModbusExceptionResponse, SofarModbusClient
+from .registers import (
+    BLOCKS,
+    MODE_PASSIVE,
+    REG_PASSIVE_BLOCK,
+    REG_PASSIVE_TIMEOUT,
+    REG_REMOTE_ON_OFF,
+    REG_STORAGE_MODE,
+    SCAN_RANGES,
+    action_to_passive,
+    decode,
+    known_runs,
+    pack_passive,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def read_blocks(client: SofarModbusClient, blocks) -> tuple[dict[int, int], list[str]]:
+    """Read blocks, tolerating per-block failures. Returns (raw, failed_names)."""
+    raw: dict[int, int] = {}
+    failed: list[str] = []
+    for name, start, count, _poll in blocks:
+        try:
+            words = await client.read_holding(start, count)
+        except ModbusError as err:
+            failed.append(name)
+            _LOGGER.debug("Block %s (0x%04X/%d) failed: %s", name, start, count, err)
+            if not isinstance(err, ModbusExceptionResponse):
+                # Transport problem: the rest will fail too, stop early.
+                failed.extend(b[0] for b in blocks if b[0] not in failed and b[0] != name)
+                break
+            # The block spans a register the inverter refuses: read only the
+            # documented registers, in contiguous runs.
+            got_any = False
+            for run_start, run_count in known_runs(start, count):
+                try:
+                    for i, w in enumerate(await client.read_holding(run_start, run_count)):
+                        raw[run_start + i] = w
+                    got_any = True
+                except ModbusExceptionResponse:
+                    continue
+            if got_any:
+                failed.remove(name)
+            continue
+        for i, w in enumerate(words):
+            raw[start + i] = w
+    return raw, failed
+
+
+class SofarCoordinator(DataUpdateCoordinator[dict]):
+    """Polls the inverter and owns the Modbus client."""
+
+    config_entry: ConfigEntry
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client: SofarModbusClient) -> None:
+        interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name=DOMAIN,
+            update_interval=timedelta(seconds=interval),
+        )
+        self.client = client
+        self.info: dict[int, int] = {}
+        self.failed_blocks: list[str] = []
+        self.action_power: int = int(self.max_battery_power)
+        self._last_passive: tuple[int, int, int] | None = None
+
+    # ------------------------------------------------------------------ options
+    @property
+    def max_battery_power(self) -> int:
+        return int(self.config_entry.options.get(CONF_MAX_BATTERY_POWER, DEFAULT_MAX_BATTERY_POWER))
+
+    @property
+    def keepalive(self) -> bool:
+        return bool(self.config_entry.options.get(CONF_KEEPALIVE, DEFAULT_KEEPALIVE))
+
+    # ------------------------------------------------------------------ polling
+    async def _async_update_data(self) -> dict:
+        if not self.info:
+            info_blocks = [b for b in BLOCKS if not b[3]]
+            info, _ = await read_blocks(self.client, info_blocks)
+            self.info = info
+
+        poll_blocks = [b for b in BLOCKS if b[3]]
+        raw, failed = await read_blocks(self.client, poll_blocks)
+        if not raw:
+            raise UpdateFailed(f"No response from inverter ({', '.join(failed)})")
+        if failed != self.failed_blocks:
+            if failed:
+                _LOGGER.warning("Sofar: register blocks not readable: %s", ", ".join(failed))
+            self.failed_blocks = failed
+
+        raw.update(self.info)
+        data = decode(raw)
+
+        if (
+            self.keepalive
+            and self._last_passive is not None
+            and data.get("energy_storage_mode") == MODE_PASSIVE
+        ):
+            try:
+                await self.client.write_registers(REG_PASSIVE_BLOCK, pack_passive(*self._last_passive))
+            except ModbusError as err:
+                _LOGGER.warning("Passive keep-alive write failed: %s", err)
+        return data
+
+    # ------------------------------------------------------------------ writes
+    async def _write(self, address: int, values: list[int]) -> None:
+        try:
+            await self.client.write_registers(address, values)
+        except ModbusError as err:
+            raise HomeAssistantError(f"Write to 0x{address:04X} failed: {err}") from err
+
+    async def async_set_storage_mode(self, mode: int) -> None:
+        await self._write(REG_STORAGE_MODE, [mode])
+        if mode != MODE_PASSIVE:
+            self._last_passive = None
+        await self.async_request_refresh()
+
+    async def async_set_passive(self, grid: int, bmin: int, bmax: int, ensure_mode: bool = True) -> None:
+        """Write all three passive values in one FC16 frame, then enter passive mode."""
+        if bmin > bmax:
+            raise HomeAssistantError("battery_min must be <= battery_max")
+        await self._write(REG_PASSIVE_BLOCK, pack_passive(grid, bmin, bmax))
+        self._last_passive = (int(grid), int(bmin), int(bmax))
+        if ensure_mode and (self.data or {}).get("energy_storage_mode") != MODE_PASSIVE:
+            await self._write(REG_STORAGE_MODE, [MODE_PASSIVE])
+        await self.async_request_refresh()
+
+    async def async_set_passive_value(self, key: str, value: int) -> None:
+        d = self.data or {}
+        current = {
+            "passive_grid_power": d.get("passive_grid_power") or 0,
+            "passive_battery_min": d.get("passive_battery_min") or 0,
+            "passive_battery_max": d.get("passive_battery_max") or 0,
+        }
+        current[key] = int(value)
+        g, lo, hi = current["passive_grid_power"], current["passive_battery_min"], current["passive_battery_max"]
+        if lo > hi:  # keep the pair consistent instead of failing
+            if key == "passive_battery_min":
+                hi = lo
+            else:
+                lo = hi
+        await self.async_set_passive(g, lo, hi, ensure_mode=False)
+
+    async def async_battery_action(self, action: str, power: int | None = None) -> None:
+        power = self.action_power if power is None else int(power)
+        power = max(0, min(power, self.max_battery_power))
+        values = action_to_passive(action, power, self.max_battery_power)
+        if values is None:
+            await self.async_set_storage_mode(0)
+        else:
+            await self.async_set_passive(*values)
+
+    async def async_set_passive_timeout(self, seconds: int | None = None, action: int | None = None) -> None:
+        d = self.data or {}
+        sec = int(seconds if seconds is not None else d.get("passive_timeout") or 0)
+        act = int(action if action is not None else d.get("passive_timeout_action") or 0)
+        await self._write(REG_PASSIVE_TIMEOUT, [sec, act])
+        await self.async_request_refresh()
+
+    async def async_set_remote_on(self, on: bool) -> None:
+        await self._write(REG_REMOTE_ON_OFF, [1 if on else 0])
+        await self.async_request_refresh()
+
+    # ------------------------------------------------------------------ scan
+    async def async_scan(self, ranges: list[tuple[int, int]] | None = None) -> dict[str, int | str]:
+        """Read every register in the given ranges; unreadable ones are reported."""
+        return await scan_registers(self.client, ranges or SCAN_RANGES)
+
+
+async def scan_registers(client: SofarModbusClient, ranges) -> dict[str, int | str]:
+    result: dict[str, int | str] = {}
+    for start, end in ranges:
+        addr = start
+        while addr <= end:
+            count = min(16, end - addr + 1)
+            try:
+                words = await client.read_holding(addr, count)
+                for i, w in enumerate(words):
+                    result[f"0x{addr + i:04X}"] = w
+            except ModbusExceptionResponse:
+                # Chunk contains a hole – fall back to single registers.
+                for a in range(addr, addr + count):
+                    try:
+                        result[f"0x{a:04X}"] = (await client.read_holding(a, 1))[0]
+                    except ModbusExceptionResponse as err:
+                        result[f"0x{a:04X}"] = f"ERR{err.code}"
+            addr += count
+    return result

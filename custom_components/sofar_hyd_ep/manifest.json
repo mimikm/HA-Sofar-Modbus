@@ -1,0 +1,12 @@
+{
+  "domain": "sofar_hyd_ep",
+  "name": "Sofar HYD-EP Modbus",
+  "codeowners": ["@mimikm"],
+  "config_flow": true,
+  "documentation": "https://github.com/mimikm/HA-Sofar-Modbus",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/mimikm/HA-Sofar-Modbus/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
