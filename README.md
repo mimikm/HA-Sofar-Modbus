@@ -94,7 +94,7 @@ Only one Modbus master should poll the inverter's RS485 port. Remove any other i
 | Entity | What it does |
 |---|---|
 | Energy storage mode | Self use / Time of use / Timing / Passive / Peak shaving |
-| Battery action | Auto (self use), Force charge, Force discharge, Pause battery, Hold (no discharge) |
+| Battery action | Auto (self use), Force charge, Force discharge, Pause battery, Hold (no discharge), Hold (no charge) |
 | Battery action power | Power used by Force charge / Force discharge |
 | Passive desired grid power, minimum / maximum battery power | Raw passive-mode set-points |
 | Passive timeout + action | Inverter falls back if it hears nothing for N seconds |
@@ -148,13 +148,17 @@ Needs Home Assistant running – set a passive timeout if you want the inverter 
 
 Applying writes the rule in one Modbus frame, commits it, checks the inverter's status reply, reads it back to verify, then switches the energy storage mode. These settings are stored in the inverter's EEPROM, so don't rewrite them from frequent automations.
 
+## Predbat
+
+Predbat can plan and control your Sofar battery through this integration – no automations needed. See the **[Predbat guide](predbat/README.md)** and the ready-made **[apps.yaml](predbat/apps.yaml)**.
+
 ## Diagnostics
 
 **Settings → Devices & services → Sofar Modbus → ⋮ → Download diagnostics** gives the detected profile, polling state and a full register dump (gateway IP and serial redacted). Attach it to an issue to get a new model supported.
 
 ## Services
 
-* `sofar_modbus.battery_action` – `action` + optional `power`.
+* `sofar_modbus.battery_action` – `action`, optional `power` and `target_soc` (charge/discharge stops at that SOC, then holds). Accepts `device_id` or `config_entry_id` for multiple inverters.
 * `sofar_modbus.set_passive` – `grid_power`, `battery_min`, `battery_max`. All three are written together in one Modbus frame, then the inverter is switched to passive mode.
 * `sofar_modbus.scan_registers` – reads every documented register range (or `start` + `count`) and saves a dump to `/config/sofar_register_scan_<time>.txt`. Use it to find registers your firmware supports that aren't mapped yet.
 
@@ -170,6 +174,7 @@ data:
 
 * **Polling interval** – default 10 s.
 * **Maximum battery power** – default 3000 W; caps the action power and sliders.
+* **Battery capacity** – kWh; enables Battery stored energy and Battery capacity sensors (used by Predbat).
 * **Keep inverter clock in sync** – auto-corrects drift over 30 s, at most once an hour.
 * **Re-send passive set-points every poll** – turn on together with a passive timeout, so the inverter falls back safely if Home Assistant stops.
 

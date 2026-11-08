@@ -4,6 +4,10 @@ set_passive:
       selector:
         config_entry:
           integration: sofar_modbus
+    device_id:
+      selector:
+        device:
+          integration: sofar_modbus
     grid_power:
       required: true
       example: 0
@@ -26,6 +30,10 @@ battery_action:
       selector:
         config_entry:
           integration: sofar_modbus
+    device_id:
+      selector:
+        device:
+          integration: sofar_modbus
     action:
       required: true
       selector:
@@ -36,16 +44,25 @@ battery_action:
             - "Force discharge"
             - "Pause battery"
             - "Hold (no discharge)"
+            - "Hold (no charge)"
     power:
       example: 2000
       selector:
         number: {min: 0, max: 10000, step: 50, unit_of_measurement: W, mode: slider}
+    target_soc:
+      example: 90
+      selector:
+        number: {min: 0, max: 100, unit_of_measurement: "%", mode: box}
 
 scan_registers:
   fields:
     config_entry_id:
       selector:
         config_entry:
+          integration: sofar_modbus
+    device_id:
+      selector:
+        device:
           integration: sofar_modbus
     start:
       example: 1600
@@ -61,6 +78,10 @@ charge_slot: &slot
     config_entry_id:
       selector:
         config_entry:
+          integration: sofar_modbus
+    device_id:
+      selector:
+        device:
           integration: sofar_modbus
     start:
       required: true
@@ -93,6 +114,10 @@ clear_slots:
       selector:
         config_entry:
           integration: sofar_modbus
+    device_id:
+      selector:
+        device:
+          integration: sofar_modbus
     slot_id:
       selector:
         text:
@@ -102,6 +127,10 @@ set_timing_slot:
     config_entry_id:
       selector:
         config_entry:
+          integration: sofar_modbus
+    device_id:
+      selector:
+        device:
           integration: sofar_modbus
     slot:
       required: true
@@ -144,6 +173,10 @@ set_tou_rule:
     config_entry_id:
       selector:
         config_entry:
+          integration: sofar_modbus
+    device_id:
+      selector:
+        device:
           integration: sofar_modbus
     rule:
       required: true

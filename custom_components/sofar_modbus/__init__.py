@@ -13,6 +13,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, ServiceValidationError
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.storage import Store
 
 from .const import CONF_FRAMING, CONF_SLAVE, DOMAIN, PLATFORMS
@@ -28,6 +29,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 type SofarConfigEntry = ConfigEntry[SofarCoordinator]
 
 ENTRY = vol.Optional("config_entry_id")
+DEVICE = vol.Optional("device_id")
 POWER = vol.All(vol.Coerce(int), vol.Range(-50000, 50000))
 POS_POWER = vol.All(vol.Coerce(int), vol.Range(0, 50000))
 WHEN = vol.Any(cv.time, cv.datetime)
@@ -38,6 +40,20 @@ SLOT_NO = vol.All(vol.Coerce(int), vol.Range(1, 4))
 async def async_setup(hass: HomeAssistant, config) -> bool:
     def _coordinator(call: ServiceCall) -> SofarCoordinator:
         entry_id = call.data.get("config_entry_id")
+        if entry_id is None and call.data.get("device_id"):
+            dev_ids = call.data["device_id"]
+            dev_ids = dev_ids if isinstance(dev_ids, list) else [dev_ids]
+            registry = dr.async_get(hass)
+            for dev_id in dev_ids:
+                device = registry.async_get(dev_id)
+                if device is None:
+                    continue
+                for eid in device.config_entries:
+                    entry = hass.config_entries.async_get_entry(eid)
+                    if entry and entry.domain == DOMAIN:
+                        entry_id = eid
+            if entry_id is None:
+                raise ServiceValidationError("device_id is not a Sofar Modbus device")
         entries = [
             e for e in hass.config_entries.async_entries(DOMAIN)
             if e.state is ConfigEntryState.LOADED and (entry_id is None or e.entry_id == entry_id)
@@ -52,7 +68,8 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
         )
 
     async def battery_action(call: ServiceCall) -> None:
-        await _coordinator(call).async_battery_action(call.data["action"], call.data.get("power"))
+        await _coordinator(call).async_battery_action(
+            call.data["action"], call.data.get("power"), call.data.get("target_soc"))
 
     async def scan_registers(call: ServiceCall):
         coord = _coordinator(call)
@@ -110,14 +127,14 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
             target_soc=d["target_soc"], power=d["power"], weekdays=d.get("weekdays"),
             activate=d["activate"])
 
-    slot_schema = vol.Schema({ENTRY: str, vol.Required("start"): WHEN, vol.Required("end"): WHEN,
+    slot_schema = vol.Schema({ENTRY: str, DEVICE: vol.Any(str, [str]), vol.Required("start"): WHEN, vol.Required("end"): WHEN,
                               vol.Optional("power"): POS_POWER, vol.Optional("soc"): SOC,
                               vol.Optional("daily", default=False): cv.boolean})
     for name in ("charge_slot", "discharge_slot"):
         hass.services.async_register(DOMAIN, name, add_slot, schema=slot_schema,
                                      supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "clear_slots", clear_slots,
-                                 schema=vol.Schema({ENTRY: str, vol.Optional("slot_id"): str}))
+                                 schema=vol.Schema({ENTRY: str, DEVICE: vol.Any(str, [str]), vol.Optional("slot_id"): str}))
     hass.services.async_register(
         DOMAIN, "set_timing_slot", set_timing_slot,
         schema=vol.Schema({
@@ -145,17 +162,18 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
         }))
     hass.services.async_register(
         DOMAIN, "set_passive", set_passive,
-        schema=vol.Schema({ENTRY: str, vol.Required("grid_power"): POWER,
+        schema=vol.Schema({ENTRY: str, DEVICE: vol.Any(str, [str]), vol.Required("grid_power"): POWER,
                            vol.Required("battery_min"): POWER, vol.Required("battery_max"): POWER}),
     )
     hass.services.async_register(
         DOMAIN, "battery_action", battery_action,
-        schema=vol.Schema({ENTRY: str, vol.Required("action"): vol.In(BATTERY_ACTIONS),
-                           vol.Optional("power"): vol.All(vol.Coerce(int), vol.Range(0, 50000))}),
+        schema=vol.Schema({ENTRY: str, DEVICE: vol.Any(str, [str]), vol.Required("action"): vol.In(BATTERY_ACTIONS),
+                           vol.Optional("power"): vol.All(vol.Coerce(int), vol.Range(0, 50000)),
+                           vol.Optional("target_soc"): SOC}),
     )
     hass.services.async_register(
         DOMAIN, "scan_registers", scan_registers,
-        schema=vol.Schema({ENTRY: str, vol.Optional("start"): vol.Coerce(int),
+        schema=vol.Schema({ENTRY: str, DEVICE: vol.Any(str, [str]), vol.Optional("start"): vol.Coerce(int),
                            vol.Optional("count"): vol.All(vol.Coerce(int), vol.Range(1, 2048))}),
         supports_response=SupportsResponse.OPTIONAL,
     )
@@ -185,6 +203,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SofarConfigEntry) -> boo
     stored = await coordinator.slot_store.async_load()
     if stored:
         coordinator.slots = stored.get("slots", [])
+        coordinator.goal = stored.get("goal")
         if stored.get("applied"):
             # A slot was driving the battery when HA stopped: re-apply or hand back to Auto.
             coordinator._slot_applied = ("restored", -1)

@@ -43,7 +43,8 @@
           "scan_interval": "Polling interval (seconds)",
           "max_battery_power": "Maximum battery power (W)",
           "passive_keepalive": "Re-send passive set-points every poll (use with a passive timeout)",
-          "auto_time_sync": "Keep inverter clock in sync (auto-correct drift over 30 s, at most hourly)"
+          "auto_time_sync": "Keep inverter clock in sync (auto-correct drift over 30 s, at most hourly)",
+          "battery_capacity": "Battery capacity (kWh, 0 = not set) – used for stored energy and Predbat"
         }
       }
     }
@@ -333,6 +334,15 @@
       },
       "bus_voltage": {
         "name": "DC bus voltage"
+      },
+      "battery_stored_energy": {
+        "name": "Battery stored energy"
+      },
+      "battery_capacity": {
+        "name": "Battery capacity"
+      },
+      "battery_max_power": {
+        "name": "Battery max power"
       }
     },
     "binary_sensor": {
@@ -452,6 +462,10 @@
         "battery_max": {
           "name": "Maximum battery power",
           "description": "+ charge, - discharge."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Sofar device (alternative to choosing the inverter)."
         }
       }
     },
@@ -470,6 +484,14 @@
         "power": {
           "name": "Power",
           "description": "Charge/discharge power in W. Defaults to the Battery action power number."
+        },
+        "target_soc": {
+          "name": "Target SOC",
+          "description": "Charge: stop at this SOC. Discharge: stop at this SOC. The battery then holds (no discharge)."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Sofar device (alternative to choosing the inverter)."
         }
       }
     },
@@ -488,6 +510,10 @@
         "count": {
           "name": "Count",
           "description": "Number of registers from the start address."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Sofar device (alternative to choosing the inverter)."
         }
       }
     },
@@ -518,6 +544,10 @@
         "daily": {
           "name": "Repeat daily",
           "description": "Run every day instead of once."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Sofar device (alternative to choosing the inverter)."
         }
       }
     },
@@ -548,6 +578,10 @@
         "daily": {
           "name": "Repeat daily",
           "description": "Run every day instead of once."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Sofar device (alternative to choosing the inverter)."
         }
       }
     },
@@ -562,6 +596,10 @@
         "slot_id": {
           "name": "Slot ID",
           "description": "Leave empty to clear all."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Sofar device (alternative to choosing the inverter)."
         }
       }
     },
@@ -612,6 +650,10 @@
         "activate": {
           "name": "Switch to timing mode",
           "description": "Set the energy storage mode to Timing after writing."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Sofar device (alternative to choosing the inverter)."
         }
       }
     },
@@ -654,6 +696,10 @@
         "activate": {
           "name": "Switch to time of use mode",
           "description": "Set the energy storage mode to Time of use after writing."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Sofar device (alternative to choosing the inverter)."
         }
       }
     }

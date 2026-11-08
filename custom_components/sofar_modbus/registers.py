@@ -497,11 +497,12 @@ ACTION_CHARGE = "Force charge"
 ACTION_DISCHARGE = "Force discharge"
 ACTION_PAUSE = "Pause battery"
 ACTION_NO_DISCHARGE = "Hold (no discharge)"
+ACTION_NO_CHARGE = "Hold (no charge)"
 ACTION_PASSIVE_CUSTOM = "Passive (custom)"
 ACTION_OTHER = "Inverter mode"
 
 BATTERY_ACTIONS = [ACTION_AUTO, ACTION_CHARGE, ACTION_DISCHARGE, ACTION_PAUSE,
-                   ACTION_NO_DISCHARGE]
+                   ACTION_NO_DISCHARGE, ACTION_NO_CHARGE]
 
 
 def battery_action(data: dict) -> str | None:
@@ -523,6 +524,8 @@ def battery_action(data: dict) -> str | None:
         return ACTION_DISCHARGE
     if lo == 0 and hi > 0:
         return ACTION_NO_DISCHARGE
+    if lo < 0 and hi == 0:
+        return ACTION_NO_CHARGE
     return ACTION_PASSIVE_CUSTOM
 
 
@@ -538,6 +541,9 @@ def action_to_passive(action: str, power: int, rated: int) -> tuple[int, int, in
     if action == ACTION_NO_DISCHARGE:
         # Grid target 0, battery may only charge (from surplus), never discharge.
         return 0, 0, rated
+    if action == ACTION_NO_CHARGE:
+        # Grid target 0, battery may cover the house but never charges; surplus PV is exported.
+        return 0, -rated, 0
     return None
 
 

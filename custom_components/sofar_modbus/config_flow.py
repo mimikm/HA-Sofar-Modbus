@@ -18,6 +18,8 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_AUTO_TIME_SYNC,
+    CONF_BATTERY_CAPACITY,
+    DEFAULT_BATTERY_CAPACITY,
     CONF_FRAMING,
     CONF_KEEPALIVE,
     CONF_MAX_BATTERY_POWER,
@@ -145,6 +147,11 @@ class SofarOptionsFlow(OptionsFlow):
                 _box(3, 300, "s"),
             vol.Required(CONF_MAX_BATTERY_POWER, default=o.get(CONF_MAX_BATTERY_POWER, DEFAULT_MAX_BATTERY_POWER)):
                 _box(100, 20000, "W"),
+            vol.Required(CONF_BATTERY_CAPACITY,
+                         default=o.get(CONF_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY)): vol.All(
+                NumberSelector(NumberSelectorConfig(min=0, max=200, step=0.1, mode=NumberSelectorMode.BOX,
+                                                    unit_of_measurement="kWh")),
+                vol.Coerce(float)),
             vol.Required(CONF_KEEPALIVE, default=o.get(CONF_KEEPALIVE, DEFAULT_KEEPALIVE)): bool,
             vol.Required(CONF_AUTO_TIME_SYNC, default=o.get(CONF_AUTO_TIME_SYNC, DEFAULT_AUTO_TIME_SYNC)): bool,
         })

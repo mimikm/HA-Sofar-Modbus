@@ -8,6 +8,7 @@ CONF_SCAN_INTERVAL = "scan_interval"
 CONF_MAX_BATTERY_POWER = "max_battery_power"
 CONF_KEEPALIVE = "passive_keepalive"
 CONF_AUTO_TIME_SYNC = "auto_time_sync"
+CONF_BATTERY_CAPACITY = "battery_capacity"
 
 DEFAULT_PORT = 502
 DEFAULT_SLAVE = 1
@@ -15,6 +16,7 @@ DEFAULT_SCAN_INTERVAL = 10
 DEFAULT_MAX_BATTERY_POWER = 3000
 DEFAULT_KEEPALIVE = False
 DEFAULT_AUTO_TIME_SYNC = False
+DEFAULT_BATTERY_CAPACITY = 0.0  # kWh, 0 = not set
 TIME_SYNC_THRESHOLD = 30  # seconds of drift before auto sync
 
 PLATFORMS = ["sensor", "binary_sensor", "select", "number", "switch", "button", "time"]

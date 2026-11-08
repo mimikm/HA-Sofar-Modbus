@@ -13,7 +13,9 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_AUTO_TIME_SYNC,
+    CONF_BATTERY_CAPACITY,
     CONF_KEEPALIVE,
+    DEFAULT_BATTERY_CAPACITY,
     DEFAULT_AUTO_TIME_SYNC,
     TIME_SYNC_THRESHOLD,
     CONF_MAX_BATTERY_POWER,
@@ -41,6 +43,7 @@ from .registers import (
     table as family_table,
     ACTION_AUTO,
     ACTION_NO_DISCHARGE,
+    ACTION_NO_CHARGE,
     MODE_TIMING,
     MODE_TOU,
     REG_TIMING_BLOCK,
@@ -168,6 +171,8 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         # Legacy (ME3000SP / HYD-ES): no read-back of the passive command.
         self.legacy_action: str | None = None
         self.legacy_power: int = 0
+        # Target-SOC goal from battery_action (Predbat): {"action", "target"}.
+        self.goal: dict | None = None
         self.info: dict[int, int] = {}
         self.failed_blocks: list[str] = []
         self.small_blocks: set[str] = set()
@@ -219,7 +224,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
     def battery_actions(self) -> list[str]:
         if self.modern:
             return list(BATTERY_ACTIONS)
-        return [ACTION_AUTO, ACTION_CHARGE, ACTION_DISCHARGE, ACTION_PAUSE]
+        return [ACTION_AUTO, ACTION_CHARGE, ACTION_DISCHARGE, ACTION_PAUSE]  # holds map to pause/auto
 
     async def async_redetect(self) -> None:
         from .detect import detect
@@ -235,6 +240,10 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
     @property
     def max_battery_power(self) -> int:
         return int(self.config_entry.options.get(CONF_MAX_BATTERY_POWER, DEFAULT_MAX_BATTERY_POWER))
+
+    @property
+    def battery_capacity(self) -> float:
+        return float(self.config_entry.options.get(CONF_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY) or 0)
 
     @property
     def auto_time_sync(self) -> bool:
@@ -291,7 +300,15 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
                 except ModbusError as err:
                     _LOGGER.warning("Sofar clock auto-sync failed: %s", err)
 
+        if self.hybrid:
+            cap = self.battery_capacity
+            soc = data.get("battery_soc")
+            data["battery_capacity"] = cap if cap > 0 else None
+            data["battery_stored_energy"] = (round(soc / 100 * cap, 2)
+                                             if cap > 0 and soc is not None else None)
+            data["battery_max_power"] = self.max_battery_power
         await self._run_slots(data)
+        await self._check_goal(data)
 
         if (
             self.keepalive
@@ -345,8 +362,20 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
                 lo = hi
         await self.async_set_passive(g, lo, hi, ensure_mode=False)
 
-    async def async_battery_action(self, action: str, power: int | None = None) -> None:
+    async def async_battery_action(self, action: str, power: int | None = None,
+                                   target_soc: int | None = None) -> None:
         self._require_hybrid()
+        if target_soc is not None and action in (ACTION_CHARGE, ACTION_DISCHARGE):
+            soc = (self.data or {}).get("battery_soc")
+            reached = soc is not None and (
+                soc >= target_soc if action == ACTION_CHARGE else soc <= target_soc)
+            if reached:  # already there: hold instead of starting
+                action, target_soc = ACTION_NO_DISCHARGE, None
+        new_goal = ({"action": action, "target": int(target_soc)}
+                    if target_soc is not None and action in (ACTION_CHARGE, ACTION_DISCHARGE) else None)
+        if new_goal != self.goal:
+            self.goal = new_goal
+            await self._save_slots()
         power = self.action_power if power is None else int(power)
         power = max(0, min(power, self.max_battery_power))
         if not self.modern:
@@ -362,11 +391,27 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         else:
             await self.async_set_passive(*values)
 
+    async def _check_goal(self, data: dict) -> None:
+        """Stop a target-SOC charge/discharge once the target is reached (then hold)."""
+        if not self.goal or self.slots:
+            return
+        soc = data.get("battery_soc")
+        if soc is None:
+            return
+        g = self.goal
+        if (g["action"] == ACTION_CHARGE and soc >= g["target"]) or (
+                g["action"] == ACTION_DISCHARGE and soc <= g["target"]):
+            if await self._apply_action(ACTION_NO_DISCHARGE, 0):
+                _LOGGER.info("Target SOC %s%% reached (%s%%): holding", g["target"], soc)
+                self.goal = None
+                await self._save_slots()
+
     # ------------------------------------------------------------------ legacy control
     async def _legacy_command(self, action: str, power: int) -> None:
         """ME3000SP / HYD-ES passive command (FC 0x42). Hold maps to standby."""
-        if action == ACTION_AUTO:
+        if action in (ACTION_AUTO, ACTION_NO_CHARGE):  # no "no-charge" on the old protocol
             reg, value = LEGACY_CMD_AUTO, 0
+            action = ACTION_AUTO
         elif action == ACTION_CHARGE:
             reg, value = LEGACY_CMD_CHARGE, power
         elif action == ACTION_DISCHARGE:
@@ -489,7 +534,8 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
     async def _save_slots(self) -> None:
         if self.slot_store is not None:
             await self.slot_store.async_save(
-                {"slots": self.slots, "applied": self._slot_applied is not None})
+                {"slots": self.slots, "applied": self._slot_applied is not None,
+                 "goal": self.goal})
 
     async def _run_slots(self, data: dict) -> None:
         now = dt_util.now().replace(tzinfo=None)
