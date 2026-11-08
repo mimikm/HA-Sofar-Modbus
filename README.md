@@ -44,7 +44,7 @@ Only one Modbus master should poll the inverter's RS485 port. Remove any other i
 
 **Energy (kWh, Energy-dashboard ready):** PV, house load, grid import, grid export, battery charge, battery discharge – today and lifetime.
 
-**Diagnostics:** inverter state, fault (with fault bits as attributes), temperatures, insulation resistance, grid voltage/current/frequency, serial, firmware.
+**Diagnostics:** inverter clock and drift, inverter state, fault (with fault bits as attributes), temperatures, insulation resistance, grid voltage/current/frequency, serial, firmware.
 
 **Controls:**
 
@@ -56,6 +56,7 @@ Only one Modbus master should poll the inverter's RS485 port. Remove any other i
 | Passive desired grid power, minimum / maximum battery power | Raw passive-mode set-points |
 | Passive timeout + action | Inverter falls back if it hears nothing for N seconds |
 | Inverter on | Remote on/off (disabled by default) |
+| Sync inverter clock | Sets the inverter clock to Home Assistant's local time |
 
 ### Sign conventions
 
@@ -84,6 +85,7 @@ data:
 
 * **Polling interval** – default 10 s.
 * **Maximum battery power** – default 3000 W; caps the action power and sliders.
+* **Keep inverter clock in sync** – auto-corrects drift over 30 s, at most once an hour.
 * **Re-send passive set-points every poll** – turn on together with a passive timeout, so the inverter falls back safely if Home Assistant stops.
 
 ## Notes

@@ -2,15 +2,20 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import time
 import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_AUTO_TIME_SYNC,
     CONF_KEEPALIVE,
+    DEFAULT_AUTO_TIME_SYNC,
+    TIME_SYNC_THRESHOLD,
     CONF_MAX_BATTERY_POWER,
     CONF_SCAN_INTERVAL,
     DEFAULT_KEEPALIVE,
@@ -26,11 +31,14 @@ from .registers import (
     REG_PASSIVE_TIMEOUT,
     REG_REMOTE_ON_OFF,
     REG_STORAGE_MODE,
+    REG_TIME_CONFIG,
+    REG_TIME_CONTROL,
     SCAN_RANGES,
     action_to_passive,
     decode,
     known_runs,
     pack_passive,
+    pack_time,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -121,11 +129,16 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         self.last_errors: dict[str, str] = {}
         self.action_power: int = int(self.max_battery_power)
         self._last_passive: tuple[int, int, int] | None = None
+        self._last_auto_sync: float = 0.0
 
     # ------------------------------------------------------------------ options
     @property
     def max_battery_power(self) -> int:
         return int(self.config_entry.options.get(CONF_MAX_BATTERY_POWER, DEFAULT_MAX_BATTERY_POWER))
+
+    @property
+    def auto_time_sync(self) -> bool:
+        return bool(self.config_entry.options.get(CONF_AUTO_TIME_SYNC, DEFAULT_AUTO_TIME_SYNC))
 
     @property
     def keepalive(self) -> bool:
@@ -154,6 +167,25 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
 
         raw.update(self.info)
         data = decode(raw)
+
+        # Inverter clock: the inverter keeps local wall-clock time.
+        inv = data.get("inverter_clock")
+        data["clock_drift"] = None
+        if inv is not None:
+            now = dt_util.now().replace(tzinfo=None, microsecond=0)
+            data["clock_drift"] = int((inv - now).total_seconds())
+            data["inverter_clock"] = inv.replace(tzinfo=dt_util.get_default_time_zone())
+            if (
+                self.auto_time_sync
+                and abs(data["clock_drift"]) > TIME_SYNC_THRESHOLD
+                and time.monotonic() - self._last_auto_sync > 3600
+            ):
+                self._last_auto_sync = time.monotonic()
+                try:
+                    await self._write_time()
+                    _LOGGER.info("Sofar clock was %ss off, synced", data["clock_drift"])
+                except ModbusError as err:
+                    _LOGGER.warning("Sofar clock auto-sync failed: %s", err)
 
         if (
             self.keepalive
@@ -219,6 +251,18 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         sec = int(seconds if seconds is not None else d.get("passive_timeout") or 0)
         act = int(action if action is not None else d.get("passive_timeout_action") or 0)
         await self._write(REG_PASSIVE_TIMEOUT, [sec, act])
+        await self.async_request_refresh()
+
+    async def _write_time(self) -> None:
+        now = dt_util.now()
+        await self.client.write_registers(REG_TIME_CONFIG, pack_time(now))
+        await self.client.write_registers(REG_TIME_CONTROL, [1])
+
+    async def async_sync_time(self) -> None:
+        try:
+            await self._write_time()
+        except ModbusError as err:
+            raise HomeAssistantError(f"Clock sync failed: {err}") from err
         await self.async_request_refresh()
 
     async def async_set_remote_on(self, on: bool) -> None:

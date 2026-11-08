@@ -8,17 +8,22 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
 )
 
 from .const import (
+    CONF_AUTO_TIME_SYNC,
     CONF_FRAMING,
     CONF_KEEPALIVE,
     CONF_MAX_BATTERY_POWER,
     CONF_SCAN_INTERVAL,
     CONF_SLAVE,
+    DEFAULT_AUTO_TIME_SYNC,
     DEFAULT_KEEPALIVE,
     DEFAULT_MAX_BATTERY_POWER,
     DEFAULT_PORT,
@@ -28,6 +33,14 @@ from .const import (
 )
 from .modbus import FRAMING_RTU_OVER_TCP, FRAMING_TCP, ModbusError, SofarModbusClient
 from .registers import decode
+
+def _box(lo: int, hi: int, unit: str | None = None):
+    return vol.All(
+        NumberSelector(NumberSelectorConfig(min=lo, max=hi, step=1, mode=NumberSelectorMode.BOX,
+                                            unit_of_measurement=unit)),
+        vol.Coerce(int),
+    )
+
 
 FRAMING_SELECTOR = SelectSelector(
     SelectSelectorConfig(
@@ -75,8 +88,8 @@ class SofarConfigFlow(ConfigFlow, domain=DOMAIN):
         schema = vol.Schema({
             vol.Optional(CONF_NAME, default="Sofar HYD-EP"): str,
             vol.Required(CONF_HOST): str,
-            vol.Required(CONF_PORT, default=DEFAULT_PORT): vol.All(int, vol.Range(1, 65535)),
-            vol.Required(CONF_SLAVE, default=DEFAULT_SLAVE): vol.All(int, vol.Range(1, 247)),
+            vol.Required(CONF_PORT, default=DEFAULT_PORT): _box(1, 65535),
+            vol.Required(CONF_SLAVE, default=DEFAULT_SLAVE): _box(1, 247),
             vol.Required(CONF_FRAMING, default=FRAMING_TCP): FRAMING_SELECTOR,
         })
         return self.async_show_form(
@@ -97,8 +110,8 @@ class SofarConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_update_reload_and_abort(entry, data_updates=user_input)
         schema = vol.Schema({
             vol.Required(CONF_HOST, default=entry.data[CONF_HOST]): str,
-            vol.Required(CONF_PORT, default=entry.data[CONF_PORT]): vol.All(int, vol.Range(1, 65535)),
-            vol.Required(CONF_SLAVE, default=entry.data[CONF_SLAVE]): vol.All(int, vol.Range(1, 247)),
+            vol.Required(CONF_PORT, default=entry.data[CONF_PORT]): _box(1, 65535),
+            vol.Required(CONF_SLAVE, default=entry.data[CONF_SLAVE]): _box(1, 247),
             vol.Required(CONF_FRAMING, default=entry.data[CONF_FRAMING]): FRAMING_SELECTOR,
         })
         return self.async_show_form(step_id="reconfigure", data_schema=schema, errors=errors)
@@ -115,9 +128,10 @@ class SofarOptionsFlow(OptionsFlow):
         o = self.config_entry.options
         schema = vol.Schema({
             vol.Required(CONF_SCAN_INTERVAL, default=o.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)):
-                vol.All(int, vol.Range(3, 300)),
+                _box(3, 300, "s"),
             vol.Required(CONF_MAX_BATTERY_POWER, default=o.get(CONF_MAX_BATTERY_POWER, DEFAULT_MAX_BATTERY_POWER)):
-                vol.All(int, vol.Range(100, 20000)),
+                _box(100, 20000, "W"),
             vol.Required(CONF_KEEPALIVE, default=o.get(CONF_KEEPALIVE, DEFAULT_KEEPALIVE)): bool,
+            vol.Required(CONF_AUTO_TIME_SYNC, default=o.get(CONF_AUTO_TIME_SYNC, DEFAULT_AUTO_TIME_SYNC)): bool,
         })
         return self.async_show_form(step_id="init", data_schema=schema)

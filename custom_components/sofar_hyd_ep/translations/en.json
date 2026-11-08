@@ -37,7 +37,8 @@
         "data": {
           "scan_interval": "Polling interval (seconds)",
           "max_battery_power": "Maximum battery power (W)",
-          "passive_keepalive": "Re-send passive set-points every poll (use with a passive timeout)"
+          "passive_keepalive": "Re-send passive set-points every poll (use with a passive timeout)",
+          "auto_time_sync": "Keep inverter clock in sync (auto-correct drift over 30 s, at most hourly)"
         }
       }
     }
@@ -210,6 +211,12 @@
       },
       "sw_version_master": {
         "name": "Firmware (master)"
+      },
+      "inverter_clock": {
+        "name": "Inverter clock"
+      },
+      "clock_drift": {
+        "name": "Inverter clock drift"
       }
     },
     "binary_sensor": {
@@ -248,6 +255,11 @@
     "switch": {
       "remote_on_off": {
         "name": "Inverter on"
+      }
+    },
+    "button": {
+      "sync_clock": {
+        "name": "Sync inverter clock"
       }
     }
   },

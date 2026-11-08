@@ -17,6 +17,7 @@ from dataclasses import dataclass
 # (name, start, count, poll) – poll=False means read once at start-up / on demand.
 BLOCKS: list[tuple[str, int, int, bool]] = [
     ("system", 0x0404, 0x28, True),     # 0x0404..0x042B state, faults, temps
+    ("clock", 0x042C, 0x06, True),      # 0x042C..0x0431 inverter clock
     ("grid", 0x0484, 0x2C, True),       # 0x0484..0x04AF grid / PCC / load
     ("eps", 0x0504, 0x07, True),        # 0x0504..0x050A off-grid output
     ("pv", 0x0584, 0x06, True),         # 0x0584..0x0589 PV1/PV2
@@ -64,6 +65,12 @@ REGISTERS: list[Reg] = [
     Reg("temp_heatsink", 0x041A, "i16"),
     Reg("temp_inverter", 0x0420, "i16"),
     Reg("generation_time_today", 0x0426),
+    Reg("clock_year", 0x042C),
+    Reg("clock_month", 0x042D),
+    Reg("clock_day", 0x042E),
+    Reg("clock_hour", 0x042F),
+    Reg("clock_minute", 0x0430),
+    Reg("clock_second", 0x0431),
     Reg("insulation_resistance", 0x042B),
     # grid / PCC
     Reg("grid_frequency", 0x0484, "u16", 0.01),
@@ -170,6 +177,8 @@ TIMEOUT_ACTIONS = {
 
 # Control registers
 REG_REMOTE_ON_OFF = 0x1104
+REG_TIME_CONFIG = 0x1004      # year(0-99), month, day, hour, minute, second
+REG_TIME_CONTROL = 0x100A     # write 1 to apply; read back 0 = success
 REG_STORAGE_MODE = 0x1110
 REG_PASSIVE_TIMEOUT = 0x1184
 REG_PASSIVE_BLOCK = 0x1187
@@ -257,7 +266,26 @@ def decode(raw: dict[int, int]) -> dict:
         data["sw_version"] = _sw(raw, 0x044F)
         data["sw_version_master"] = _sw(raw, 0x0453)
     data["battery_action"] = battery_action(data)
+    data["inverter_clock"] = clock(data)
     return data
+
+
+def clock(data: dict):
+    """Naive datetime from the inverter clock registers, or None."""
+    from datetime import datetime
+    parts = [data.get(k) for k in ("clock_year", "clock_month", "clock_day",
+                                   "clock_hour", "clock_minute", "clock_second")]
+    if any(p is None for p in parts):
+        return None
+    year = parts[0] + 2000 if parts[0] < 100 else parts[0]
+    try:
+        return datetime(year, *parts[1:])
+    except ValueError:
+        return None
+
+
+def pack_time(dt) -> list[int]:
+    return [dt.year % 100, dt.month, dt.day, dt.hour, dt.minute, dt.second]
 
 
 def _sw(raw: dict[int, int], base: int) -> str | None:
