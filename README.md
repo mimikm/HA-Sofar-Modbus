@@ -4,11 +4,20 @@ Home Assistant integration for **Sofar HYD 3–6K-EP** hybrid inverters (e.g. HY
 
 It reads the Sofar "new protocol" register map (0x0400+) and controls the battery through **passive mode**, which is how Sofar intends external energy managers to drive the inverter.
 
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=mimikm&repository=HA-Sofar-Modbus&category=integration)
+[![Validate](https://github.com/mimikm/HA-Sofar-Modbus/actions/workflows/validate.yml/badge.svg)](https://github.com/mimikm/HA-Sofar-Modbus/actions/workflows/validate.yml)
+
 ## Install
 
-1. Copy `custom_components/sofar_hyd_ep` into `/config/custom_components/` (or add this repo to HACS as a custom repository).
-2. Restart Home Assistant.
+**HACS (recommended)**
+
+1. HACS → ⋮ → **Custom repositories** → add `https://github.com/mimikm/HA-Sofar-Modbus`, category **Integration** (or use the button above).
+2. Download **Sofar HYD-EP Modbus**, then restart Home Assistant.
 3. **Settings → Devices & services → Add integration → Sofar HYD-EP Modbus.**
+
+**Manual**
+
+Copy `custom_components/sofar_hyd_ep` into `/config/custom_components/` and restart Home Assistant.
 
 ## Gateway setup
 
