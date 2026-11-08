@@ -1,4 +1,4 @@
-"""Minimal async Modbus client for Sofar HYD-EP inverters behind an IP gateway.
+"""Minimal async Modbus client for Sofar inverters behind an IP gateway.
 
 Deliberately dependency-free (no pymodbus) so Home Assistant upgrades can't
 break it. Supports two framings:

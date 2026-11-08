@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Sofar HYD-EP via Modbus gateway",
-        "description": "Enter the IP gateway's address. Use 'Modbus TCP' if the gateway converts Modbus TCP to RTU, or 'RTU over TCP' if it is in transparent mode.",
+        "title": "Sofar inverter via Modbus gateway",
+        "description": "Enter the IP gateway's address. Use 'Modbus TCP' if the gateway converts Modbus TCP to RTU, or 'RTU over TCP' if it is in transparent mode. The integration then detects which Sofar model and features you have.",
         "data": {
           "name": "Name",
           "host": "Gateway IP address",
@@ -20,10 +20,15 @@
           "slave": "Inverter Modbus address",
           "framing": "Gateway protocol"
         }
+      },
+      "confirm": {
+        "title": "Inverter found",
+        "description": "Detected: **{model}**\n\nSerial: {serial}\nFirmware: {firmware}\nRegisters in use: {registers}\n\nPress Submit to add it."
       }
     },
     "error": {
-      "cannot_connect": "No answer from the inverter. Check IP/port, gateway protocol mode, serial settings (9600 8N1) and Modbus address."
+      "cannot_connect": "No answer from the inverter. Check IP/port, gateway protocol mode, serial settings (9600 8N1) and Modbus address.",
+      "legacy_unsupported": "This Sofar answers on the older ME3000SP / HYD-ES protocol, which isn't supported yet (planned for v0.4)."
     },
     "abort": {
       "already_configured": "This inverter is already configured.",
@@ -220,6 +225,114 @@
       },
       "slot_schedule": {
         "name": "Slot schedule"
+      },
+      "temp_ambient2": {
+        "name": "Ambient temperature 2"
+      },
+      "temp_heatsink2": {
+        "name": "Heatsink temperature 2"
+      },
+      "temp_inverter2": {
+        "name": "Inverter temperature 2"
+      },
+      "generation_time_total": {
+        "name": "Generation time total"
+      },
+      "inverter_power_r": {
+        "name": "Inverter power L1"
+      },
+      "grid_power_r": {
+        "name": "Grid power L1"
+      },
+      "grid_voltage_s": {
+        "name": "Grid voltage L2"
+      },
+      "inverter_current_s": {
+        "name": "Inverter current L2"
+      },
+      "inverter_power_s": {
+        "name": "Inverter power L2"
+      },
+      "grid_current_s": {
+        "name": "Grid current L2"
+      },
+      "grid_power_s": {
+        "name": "Grid power L2"
+      },
+      "grid_voltage_t": {
+        "name": "Grid voltage L3"
+      },
+      "inverter_current_t": {
+        "name": "Inverter current L3"
+      },
+      "inverter_power_t": {
+        "name": "Inverter power L3"
+      },
+      "grid_current_t": {
+        "name": "Grid current L3"
+      },
+      "grid_power_t": {
+        "name": "Grid power L3"
+      },
+      "eps_power_r": {
+        "name": "EPS power L1"
+      },
+      "eps_voltage_s": {
+        "name": "EPS voltage L2"
+      },
+      "eps_power_s": {
+        "name": "EPS power L2"
+      },
+      "eps_voltage_t": {
+        "name": "EPS voltage L3"
+      },
+      "eps_power_t": {
+        "name": "EPS power L3"
+      },
+      "pv3_voltage": {
+        "name": "PV3 voltage"
+      },
+      "pv3_current": {
+        "name": "PV3 current"
+      },
+      "pv3_power": {
+        "name": "PV3 power"
+      },
+      "pv4_voltage": {
+        "name": "PV4 voltage"
+      },
+      "pv4_current": {
+        "name": "PV4 current"
+      },
+      "pv4_power": {
+        "name": "PV4 power"
+      },
+      "battery2_voltage": {
+        "name": "Battery 2 voltage"
+      },
+      "battery2_current": {
+        "name": "Battery 2 current"
+      },
+      "battery2_power": {
+        "name": "Battery 2 power"
+      },
+      "battery2_temperature": {
+        "name": "Battery 2 temperature"
+      },
+      "battery2_soc": {
+        "name": "Battery 2 SOC"
+      },
+      "battery2_soh": {
+        "name": "Battery 2 SOH"
+      },
+      "battery2_cycles": {
+        "name": "Battery 2 cycles"
+      },
+      "gfci_current": {
+        "name": "Residual current (GFCI)"
+      },
+      "bus_voltage": {
+        "name": "DC bus voltage"
       }
     },
     "binary_sensor": {
@@ -293,6 +406,9 @@
       },
       "clear_slots": {
         "name": "Clear scheduled slots"
+      },
+      "redetect": {
+        "name": "Re-detect inverter"
       }
     },
     "time": {

@@ -1,5 +1,5 @@
 {
-  "name": "Sofar HYD-EP Modbus",
+  "name": "Sofar Modbus",
   "homeassistant": "2024.11.0",
   "render_readme": true
 }

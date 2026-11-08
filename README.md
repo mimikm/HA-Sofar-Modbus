@@ -1,8 +1,26 @@
-# Sofar HYD-EP Modbus
+# Sofar Modbus
 
-Home Assistant integration for **Sofar HYD 3–6K-EP** hybrid inverters (e.g. HYD 3680-EP) over an **RS485-to-Ethernet gateway** such as the Ebyte NE2-D14E. Local polling, no cloud, no pymodbus dependency.
+Home Assistant integration for **Sofar Solar inverters** over an **RS485-to-Ethernet gateway** (Ebyte NE2-D14E, Waveshare RS485 TO ETH, …). Local polling, no cloud, no pymodbus dependency.
 
-It reads the Sofar "new protocol" register map (0x0400+) and controls the battery through **passive mode**, which is how Sofar intends external energy managers to drive the inverter.
+It **autodetects** what your inverter has and only creates the entities that exist: phases, PV inputs, battery inputs, hybrid controls.
+
+## Supported inverters
+
+| Family | Models | Status |
+|---|---|---|
+| Modern protocol (0x0400+) | HYD 3–6K-EP, HYD 5–20K-3PH, KTL-X G3 / KTLM (PV-only), ZCS Azzurro rebadges | Supported |
+| Legacy storage protocol (0x0200+) | ME3000SP, HYD 3–6K-ES | Planned (v0.4) – setup tells you if you have one |
+
+Tested on hardware: HYD 3680-EP. Other modern models are detected from the inverter's own channel configuration and address masks; please share a diagnostics download (below) if something looks wrong.
+
+### How detection works
+
+1. Protocol family: the modern map answers at `0x0404`, the legacy map at `0x0200`.
+2. The inverter's input-channel config (`0x1011–0x1020`) says which DC inputs are PV strings and which are batteries.
+3. Live readings (L2 voltage, battery voltages) decide phases and battery count; the address mask at the start of each 64-register field fills in optional registers.
+4. Setup shows what it found before adding the device. Press **Re-detect inverter** after a firmware update or adding a battery.
+
+Upgrading from `sofar_hyd_ep` (v0.2 and earlier): remove the old integration and its folder, install this one and add the inverter again. Entity IDs change from `…sofar_hyd_ep…` to new ones under the `Sofar` device.
 
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=mimikm&repository=HA-Sofar-Modbus&category=integration)
 [![Validate](https://github.com/mimikm/HA-Sofar-Modbus/actions/workflows/validate.yml/badge.svg)](https://github.com/mimikm/HA-Sofar-Modbus/actions/workflows/validate.yml)
@@ -12,12 +30,12 @@ It reads the Sofar "new protocol" register map (0x0400+) and controls the batter
 **HACS (recommended)**
 
 1. HACS → ⋮ → **Custom repositories** → add `https://github.com/mimikm/HA-Sofar-Modbus`, category **Integration** (or use the button above).
-2. Download **Sofar HYD-EP Modbus**, then restart Home Assistant.
-3. **Settings → Devices & services → Add integration → Sofar HYD-EP Modbus.**
+2. Download **Sofar Modbus**, then restart Home Assistant.
+3. **Settings → Devices & services → Add integration → Sofar Modbus.**
 
 **Manual**
 
-Copy `custom_components/sofar_hyd_ep` into `/config/custom_components/` and restart Home Assistant.
+Copy `custom_components/sofar_modbus` into `/config/custom_components/` and restart Home Assistant.
 
 ## Gateway setup
 
@@ -73,11 +91,11 @@ There are two ways to schedule the battery. Pick one at a time: Home Assistant s
 
 ### Home Assistant slots (flexible)
 
-`sofar_hyd_ep.charge_slot` / `sofar_hyd_ep.discharge_slot` – start, end, optional power, optional SOC limit, optional daily repeat. When the SOC limit is reached the battery holds (no discharge) until the slot ends; afterwards the inverter goes back to Auto (self use). Slots survive restarts. The **Slot schedule** sensor shows what's running and lists all slots; **Clear scheduled slots** removes them.
+`sofar_modbus.charge_slot` / `sofar_modbus.discharge_slot` – start, end, optional power, optional SOC limit, optional daily repeat. When the SOC limit is reached the battery holds (no discharge) until the slot ends; afterwards the inverter goes back to Auto (self use). Slots survive restarts. The **Slot schedule** sensor shows what's running and lists all slots; **Clear scheduled slots** removes them.
 
 ```yaml
 # Cheap-rate charge to 90 % every night
-service: sofar_hyd_ep.charge_slot
+service: sofar_modbus.charge_slot
 data:
   start: "00:30"
   end: "04:30"
@@ -88,7 +106,7 @@ data:
 
 ```yaml
 # Discharge for an export event today, stop at 20 %
-service: sofar_hyd_ep.discharge_slot
+service: sofar_modbus.discharge_slot
 data:
   start: "16:00"
   end: "19:00"
@@ -100,20 +118,24 @@ Needs Home Assistant running – set a passive timeout if you want the inverter 
 
 ### Native inverter slots (runs on the inverter)
 
-* **Timing mode** – 4 slots, each with a charge window and a discharge window and their own power. Slot 1 has entities (times, powers, enable switches) and an **Apply timing slot 1** button; all 4 via `sofar_hyd_ep.set_timing_slot`.
-* **Time of use** – charge rules with a window, target SOC, power and weekdays. Rule 1 has entities and an **Apply time of use rule 1** button; rules 1–4 via `sofar_hyd_ep.set_tou_rule`.
+* **Timing mode** – 4 slots, each with a charge window and a discharge window and their own power. Slot 1 has entities (times, powers, enable switches) and an **Apply timing slot 1** button; all 4 via `sofar_modbus.set_timing_slot`.
+* **Time of use** – charge rules with a window, target SOC, power and weekdays. Rule 1 has entities and an **Apply time of use rule 1** button; rules 1–4 via `sofar_modbus.set_tou_rule`.
 
 Applying writes the rule in one Modbus frame, commits it, checks the inverter's status reply, reads it back to verify, then switches the energy storage mode. These settings are stored in the inverter's EEPROM, so don't rewrite them from frequent automations.
 
+## Diagnostics
+
+**Settings → Devices & services → Sofar Modbus → ⋮ → Download diagnostics** gives the detected profile, polling state and a full register dump (gateway IP and serial redacted). Attach it to an issue to get a new model supported.
+
 ## Services
 
-* `sofar_hyd_ep.battery_action` – `action` + optional `power`.
-* `sofar_hyd_ep.set_passive` – `grid_power`, `battery_min`, `battery_max`. All three are written together in one Modbus frame, then the inverter is switched to passive mode.
-* `sofar_hyd_ep.scan_registers` – reads every documented register range (or `start` + `count`) and saves a dump to `/config/sofar_register_scan_<time>.txt`. Use it to find registers your firmware supports that aren't mapped yet.
+* `sofar_modbus.battery_action` – `action` + optional `power`.
+* `sofar_modbus.set_passive` – `grid_power`, `battery_min`, `battery_max`. All three are written together in one Modbus frame, then the inverter is switched to passive mode.
+* `sofar_modbus.scan_registers` – reads every documented register range (or `start` + `count`) and saves a dump to `/config/sofar_register_scan_<time>.txt`. Use it to find registers your firmware supports that aren't mapped yet.
 
 ```yaml
 # Force charge at 2.5 kW
-service: sofar_hyd_ep.battery_action
+service: sofar_modbus.battery_action
 data:
   action: Force charge
   power: 2500

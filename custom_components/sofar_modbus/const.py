@@ -1,5 +1,5 @@
-"""Constants for the Sofar HYD-EP Modbus integration."""
-DOMAIN = "sofar_hyd_ep"
+"""Constants for the Sofar Modbus integration."""
+DOMAIN = "sofar_modbus"
 MANUFACTURER = "Sofar Solar"
 
 CONF_SLAVE = "slave"

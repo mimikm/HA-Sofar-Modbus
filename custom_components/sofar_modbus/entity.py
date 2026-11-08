@@ -22,7 +22,7 @@ class SofarEntity(CoordinatorEntity[SofarCoordinator]):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, uid)},
             manufacturer=MANUFACTURER,
-            model="HYD-EP hybrid inverter",
+            model=coordinator.profile.get("model") or "Sofar inverter",
             name=entry.title,
             serial_number=data.get("serial") or None,
             sw_version=data.get("sw_version"),

@@ -9,8 +9,12 @@ from .entity import SofarEntity
 
 async def async_setup_entry(hass, entry, async_add_entities):
     c = entry.runtime_data
-    async_add_entities([SyncClockButton(c), ApplyNativeButton(c, "timing"),
-                        ApplyNativeButton(c, "tou"), ClearSlotsButton(c)])
+    entities = [RedetectButton(c)]
+    if c.has("clock_year"):
+        entities.append(SyncClockButton(c))
+    if c.hybrid:
+        entities += [ApplyNativeButton(c, "timing"), ApplyNativeButton(c, "tou"), ClearSlotsButton(c)]
+    async_add_entities(entities)
 
 
 class SyncClockButton(SofarEntity, ButtonEntity):
@@ -58,3 +62,20 @@ class ClearSlotsButton(SofarEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self.coordinator.async_clear_slots()
+
+
+class RedetectButton(SofarEntity, ButtonEntity):
+    """Run autodetection again (after a firmware update or adding a battery)."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:magnify-scan"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "redetect")
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success
+
+    async def async_press(self) -> None:
+        await self.coordinator.async_redetect()

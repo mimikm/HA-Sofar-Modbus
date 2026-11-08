@@ -12,6 +12,8 @@ GRID_LIMIT = 10000  # W, sanity bound for the desired grid power slider
 
 async def async_setup_entry(hass, entry, async_add_entities):
     c = entry.runtime_data
+    if not c.hybrid:
+        return
     rated = c.max_battery_power
     async_add_entities([
         PassiveNumber(c, "passive_grid_power", -GRID_LIMIT, GRID_LIMIT),

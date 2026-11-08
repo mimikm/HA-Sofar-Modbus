@@ -10,7 +10,8 @@ from .registers import BATTERY_ACTIONS, STORAGE_MODES, TIMEOUT_ACTIONS
 
 async def async_setup_entry(hass, entry, async_add_entities):
     c = entry.runtime_data
-    async_add_entities([StorageModeSelect(c), BatteryActionSelect(c), TimeoutActionSelect(c)])
+    if c.hybrid:
+        async_add_entities([StorageModeSelect(c), BatteryActionSelect(c), TimeoutActionSelect(c)])
 
 
 class StorageModeSelect(SofarEntity, SelectEntity):

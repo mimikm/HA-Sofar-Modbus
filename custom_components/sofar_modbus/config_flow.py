@@ -32,7 +32,7 @@ from .const import (
     DOMAIN,
 )
 from .modbus import FRAMING_RTU_OVER_TCP, FRAMING_TCP, ModbusError, SofarModbusClient
-from .registers import decode
+from .detect import UnsupportedInverter, detect
 
 def _box(lo: int, hi: int, unit: str | None = None):
     return vol.All(
@@ -51,18 +51,10 @@ FRAMING_SELECTOR = SelectSelector(
 )
 
 
-async def _probe(data: dict) -> dict:
+async def _detect(data: dict) -> dict:
     client = SofarModbusClient(data[CONF_HOST], data[CONF_PORT], data[CONF_SLAVE], data[CONF_FRAMING])
     try:
-        raw = {}
-        words = await client.read_holding(0x0404, 1)  # SysState – proves the EP map answers
-        raw[0x0404] = words[0]
-        try:
-            for i, w in enumerate(await client.read_holding(0x0445, 7)):
-                raw[0x0445 + i] = w
-        except ModbusError:
-            pass
-        return decode(raw)
+        return await detect(client)
     finally:
         await client.close()
 
@@ -70,23 +62,30 @@ async def _probe(data: dict) -> dict:
 class SofarConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
+    def __init__(self) -> None:
+        self._data: dict = {}
+        self._title = "Sofar"
+
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             data = {k: v for k, v in user_input.items() if k != CONF_NAME}
             try:
-                info = await _probe(data)
+                profile = await _detect(data)
+            except UnsupportedInverter:
+                errors["base"] = "legacy_unsupported"
             except ModbusError:
                 errors["base"] = "cannot_connect"
             else:
-                serial = info.get("serial") or f"{data[CONF_HOST]}_{data[CONF_SLAVE]}"
+                serial = profile.get("serial") or f"{data[CONF_HOST]}_{data[CONF_SLAVE]}"
                 await self.async_set_unique_id(serial)
                 self._abort_if_unique_id_configured(updates=data)
-                title = user_input.get(CONF_NAME) or "Sofar HYD-EP"
-                return self.async_create_entry(title=title, data=data)
+                self._data = {**data, "profile": profile}
+                self._title = user_input.get(CONF_NAME) or "Sofar"
+                return await self.async_step_confirm()
 
         schema = vol.Schema({
-            vol.Optional(CONF_NAME, default="Sofar HYD-EP"): str,
+            vol.Optional(CONF_NAME, default="Sofar"): str,
             vol.Required(CONF_HOST): str,
             vol.Required(CONF_PORT, default=DEFAULT_PORT): _box(1, 65535),
             vol.Required(CONF_SLAVE, default=DEFAULT_SLAVE): _box(1, 247),
@@ -98,16 +97,33 @@ class SofarConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title=self._title, data=self._data)
+        p = self._data["profile"]
+        return self.async_show_form(
+            step_id="confirm",
+            description_placeholders={
+                "model": p["model"],
+                "serial": p.get("serial") or "unknown",
+                "firmware": p.get("sw_version") or "unknown",
+                "registers": str(len(p["registers"])),
+            },
+        )
+
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                await _probe(user_input)
+                profile = await _detect(user_input)
+            except UnsupportedInverter:
+                errors["base"] = "legacy_unsupported"
             except ModbusError:
                 errors["base"] = "cannot_connect"
             else:
-                return self.async_update_reload_and_abort(entry, data_updates=user_input)
+                return self.async_update_reload_and_abort(
+                    entry, data_updates={**user_input, "profile": profile})
         schema = vol.Schema({
             vol.Required(CONF_HOST, default=entry.data[CONF_HOST]): str,
             vol.Required(CONF_PORT, default=entry.data[CONF_PORT]): _box(1, 65535),

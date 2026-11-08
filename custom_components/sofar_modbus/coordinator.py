@@ -25,7 +25,7 @@ from .const import (
 )
 from .modbus import ModbusError, ModbusExceptionResponse, SofarModbusClient
 from .registers import (
-    BLOCKS,
+    DEFAULT_KEYS,
     MODE_PASSIVE,
     REG_PASSIVE_BLOCK,
     REG_PASSIVE_TIMEOUT,
@@ -37,6 +37,7 @@ from .registers import (
     action_to_passive,
     decode,
     known_runs,
+    make_blocks,
     ACTION_AUTO,
     ACTION_NO_DISCHARGE,
     MODE_TIMING,
@@ -75,7 +76,8 @@ def _chunks(runs: list[tuple[int, int]], size: int) -> list[tuple[int, int]]:
 
 
 async def read_blocks(
-    client: SofarModbusClient, blocks, small: set[str] | None = None
+    client: SofarModbusClient, blocks, small: set[str] | None = None,
+    needs: dict[str, set[int]] | None = None,
 ) -> tuple[dict[int, int], list[str], dict[str, str]]:
     """Read register blocks, tolerating failures.
 
@@ -105,7 +107,8 @@ async def read_blocks(
                 _LOGGER.debug("Block %s (0x%04X/%d) failed: %s; trying small reads",
                               name, start, count, err)
         got_any = False
-        for c_start, c_count in _chunks(known_runs(start, count), MAX_FALLBACK_CHUNK):
+        wanted = (needs or {}).get(name)
+        for c_start, c_count in _chunks(known_runs(start, count, wanted), MAX_FALLBACK_CHUNK):
             if transport_failures >= 3:
                 break
             try:
@@ -115,6 +118,12 @@ async def read_blocks(
                 transport_failures = 0
             except ModbusExceptionResponse as err:
                 errors.setdefault(name, str(err))
+                for a in range(c_start, c_start + c_count):  # isolate the refused register
+                    try:
+                        raw[a] = (await client.read_holding(a, 1))[0]
+                        got_any = True
+                    except ModbusExceptionResponse:
+                        pass
             except ModbusError as err:
                 errors.setdefault(name, str(err))
                 transport_failures += 1
@@ -142,6 +151,9 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
             update_interval=timedelta(seconds=interval),
         )
         self.client = client
+        self.profile: dict = dict(entry.data.get("profile") or {})
+        keys = self.profile.get("registers") or DEFAULT_KEYS
+        self.blocks, self.block_needs = make_blocks(keys)
         self.info: dict[int, int] = {}
         self.failed_blocks: list[str] = []
         self.small_blocks: set[str] = set()
@@ -166,6 +178,29 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         self._slot_applied: tuple[str, int] | None = None
         self._slot_latched: set[str] = set()
 
+    # ------------------------------------------------------------------ profile
+    @property
+    def hybrid(self) -> bool:
+        return bool(self.profile.get("hybrid", True))
+
+    def has(self, key: str) -> bool:
+        regs = self.profile.get("registers")
+        return key in (regs if regs is not None else DEFAULT_KEYS)
+
+    def _require_hybrid(self) -> None:
+        if not self.hybrid:
+            raise HomeAssistantError("This inverter has no battery input")
+
+    async def async_redetect(self) -> None:
+        from .detect import detect
+        try:
+            profile = await detect(self.client)
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(f"Detection failed: {err}") from err
+        entry = self.config_entry
+        # The entry's update listener reloads the integration with the new profile.
+        self.hass.config_entries.async_update_entry(entry, data={**entry.data, "profile": profile})
+
     # ------------------------------------------------------------------ options
     @property
     def max_battery_power(self) -> int:
@@ -182,12 +217,13 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
     # ------------------------------------------------------------------ polling
     async def _async_update_data(self) -> dict:
         if not self.info:
-            info_blocks = [b for b in BLOCKS if not b[3]]
-            info, _, _ = await read_blocks(self.client, info_blocks, self.small_blocks)
+            info_blocks = [b for b in self.blocks if not b[3]]
+            info, _, _ = await read_blocks(self.client, info_blocks, self.small_blocks, self.block_needs)
             self.info = info
 
-        poll_blocks = [b for b in BLOCKS if b[3]]
-        raw, failed, errors = await read_blocks(self.client, poll_blocks, self.small_blocks)
+        poll_blocks = [b for b in self.blocks if b[3]]
+        raw, failed, errors = await read_blocks(self.client, poll_blocks, self.small_blocks,
+                                                self.block_needs)
         self.last_errors = errors
         if not raw:
             first = next(iter(errors.values()), "no reply")
@@ -243,6 +279,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
             raise HomeAssistantError(f"Write to 0x{address:04X} failed: {err}") from err
 
     async def async_set_storage_mode(self, mode: int) -> None:
+        self._require_hybrid()
         await self._write(REG_STORAGE_MODE, [mode])
         if mode != MODE_PASSIVE:
             self._last_passive = None
@@ -250,6 +287,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
 
     async def async_set_passive(self, grid: int, bmin: int, bmax: int, ensure_mode: bool = True) -> None:
         """Write all three passive values in one FC16 frame, then enter passive mode."""
+        self._require_hybrid()
         if bmin > bmax:
             raise HomeAssistantError("battery_min must be <= battery_max")
         await self._write(REG_PASSIVE_BLOCK, pack_passive(grid, bmin, bmax))
@@ -275,6 +313,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         await self.async_set_passive(g, lo, hi, ensure_mode=False)
 
     async def async_battery_action(self, action: str, power: int | None = None) -> None:
+        self._require_hybrid()
         power = self.action_power if power is None else int(power)
         power = max(0, min(power, self.max_battery_power))
         values = action_to_passive(action, power, self.max_battery_power)
@@ -340,6 +379,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
 
     async def _apply_native(self, block: int, values: list[int], control: int,
                             mode: int | None, label: str) -> None:
+        self._require_hybrid()
         if self.slots and mode is not None:
             raise HomeAssistantError(
                 "Clear the Home Assistant slots first – they would override the inverter mode")
@@ -359,6 +399,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
     # ------------------------------------------------------------------ HA slots
     async def async_add_slot(self, action: str, start, end, power: int | None,
                              soc: int | None, daily: bool) -> dict:
+        self._require_hybrid()
         now = dt_util.now().replace(tzinfo=None)
         p = self.action_power if power is None else int(power)
         p = max(0, min(p, self.max_battery_power))

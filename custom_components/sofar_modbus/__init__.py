@@ -1,4 +1,4 @@
-"""Sofar HYD-EP inverter over a Modbus IP gateway."""
+"""Sofar inverters over Modbus (IP gateway)."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -11,13 +11,14 @@ from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
-from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, ServiceValidationError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.storage import Store
 
 from .const import CONF_FRAMING, CONF_SLAVE, DOMAIN, PLATFORMS
 from .coordinator import SofarCoordinator
-from .modbus import SofarModbusClient
+from .detect import UnsupportedInverter, detect
+from .modbus import ModbusError, SofarModbusClient
 from .registers import BATTERY_ACTIONS, SCAN_RANGES, WEEKDAYS
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
             if e.state is ConfigEntryState.LOADED and (entry_id is None or e.entry_id == entry_id)
         ]
         if not entries:
-            raise ServiceValidationError("No loaded Sofar HYD-EP inverter found")
+            raise ServiceValidationError("No loaded Sofar inverter found")
         return entries[0].runtime_data
 
     async def set_passive(call: ServiceCall) -> None:
@@ -165,6 +166,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: SofarConfigEntry) -> boo
     client = SofarModbusClient(
         entry.data[CONF_HOST], entry.data[CONF_PORT], entry.data[CONF_SLAVE], entry.data[CONF_FRAMING]
     )
+    if not entry.data.get("profile"):
+        # First start (or upgrade from v0.2): detect what this inverter has.
+        try:
+            profile = await detect(client)
+        except UnsupportedInverter as err:
+            await client.close()
+            raise ConfigEntryError(
+                "This Sofar uses the older ME3000/HYD-ES protocol, which isn't supported yet"
+            ) from err
+        except ModbusError as err:
+            await client.close()
+            raise ConfigEntryNotReady(f"Inverter not reachable: {err}") from err
+        hass.config_entries.async_update_entry(entry, data={**entry.data, "profile": profile})
+
     coordinator = SofarCoordinator(hass, entry, client)
     coordinator.slot_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.slots")
     stored = await coordinator.slot_store.async_load()
