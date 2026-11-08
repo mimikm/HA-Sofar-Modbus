@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  zip:
+    name: Attach sofar_modbus.zip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stamp version from the release tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" custom_components/sofar_modbus/manifest.json
+          grep '"version"' custom_components/sofar_modbus/manifest.json
+
+      - name: Build zip (integration files at the root, as HACS expects)
+        run: |
+          cd custom_components/sofar_modbus
+          zip -r "$GITHUB_WORKSPACE/sofar_modbus.zip" . -x "__pycache__/*"
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" sofar_modbus.zip --clobber
