@@ -36,36 +36,68 @@ from .registers import (
 _LOGGER = logging.getLogger(__name__)
 
 
-async def read_blocks(client: SofarModbusClient, blocks) -> tuple[dict[int, int], list[str]]:
-    """Read blocks, tolerating per-block failures. Returns (raw, failed_names)."""
+MAX_FALLBACK_CHUNK = 8
+
+
+def _chunks(runs: list[tuple[int, int]], size: int) -> list[tuple[int, int]]:
+    out = []
+    for run_start, run_count in runs:
+        for off in range(0, run_count, size):
+            out.append((run_start + off, min(size, run_count - off)))
+    return out
+
+
+async def read_blocks(
+    client: SofarModbusClient, blocks, small: set[str] | None = None
+) -> tuple[dict[int, int], list[str], dict[str, str]]:
+    """Read register blocks, tolerating failures.
+
+    If a block read fails for any reason (exception reply, timeout, gateway
+    hiccup on larger frames), fall back to reading only the documented
+    registers in chunks of <= 8. Blocks that needed the fallback are added to
+    ``small`` so later polls go straight to chunked reads.
+    Returns (raw, failed_block_names, {block: error_text}).
+    """
+    small = small if small is not None else set()
     raw: dict[int, int] = {}
     failed: list[str] = []
-    for name, start, count, _poll in blocks:
-        try:
-            words = await client.read_holding(start, count)
-        except ModbusError as err:
-            failed.append(name)
-            _LOGGER.debug("Block %s (0x%04X/%d) failed: %s", name, start, count, err)
-            if not isinstance(err, ModbusExceptionResponse):
-                # Transport problem: the rest will fail too, stop early.
-                failed.extend(b[0] for b in blocks if b[0] not in failed and b[0] != name)
+    errors: dict[str, str] = {}
+    transport_failures = 0
+    for idx, (name, start, count, _poll) in enumerate(blocks):
+        if transport_failures >= 3:
+            failed.extend(b[0] for b in blocks[idx:])
+            break
+        if name not in small:
+            try:
+                for i, w in enumerate(await client.read_holding(start, count)):
+                    raw[start + i] = w
+                transport_failures = 0
+                continue
+            except ModbusError as err:
+                errors[name] = str(err)
+                _LOGGER.debug("Block %s (0x%04X/%d) failed: %s; trying small reads",
+                              name, start, count, err)
+        got_any = False
+        for c_start, c_count in _chunks(known_runs(start, count), MAX_FALLBACK_CHUNK):
+            if transport_failures >= 3:
                 break
-            # The block spans a register the inverter refuses: read only the
-            # documented registers, in contiguous runs.
-            got_any = False
-            for run_start, run_count in known_runs(start, count):
-                try:
-                    for i, w in enumerate(await client.read_holding(run_start, run_count)):
-                        raw[run_start + i] = w
-                    got_any = True
-                except ModbusExceptionResponse:
-                    continue
-            if got_any:
-                failed.remove(name)
-            continue
-        for i, w in enumerate(words):
-            raw[start + i] = w
-    return raw, failed
+            try:
+                for i, w in enumerate(await client.read_holding(c_start, c_count)):
+                    raw[c_start + i] = w
+                got_any = True
+                transport_failures = 0
+            except ModbusExceptionResponse as err:
+                errors.setdefault(name, str(err))
+            except ModbusError as err:
+                errors.setdefault(name, str(err))
+                transport_failures += 1
+        if got_any:
+            if name not in small:
+                _LOGGER.info("Sofar: block %s only readable in small chunks", name)
+            small.add(name)
+        else:
+            failed.append(name)
+    return raw, failed, errors
 
 
 class SofarCoordinator(DataUpdateCoordinator[dict]):
@@ -85,6 +117,8 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         self.client = client
         self.info: dict[int, int] = {}
         self.failed_blocks: list[str] = []
+        self.small_blocks: set[str] = set()
+        self.last_errors: dict[str, str] = {}
         self.action_power: int = int(self.max_battery_power)
         self._last_passive: tuple[int, int, int] | None = None
 
@@ -101,16 +135,21 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
     async def _async_update_data(self) -> dict:
         if not self.info:
             info_blocks = [b for b in BLOCKS if not b[3]]
-            info, _ = await read_blocks(self.client, info_blocks)
+            info, _, _ = await read_blocks(self.client, info_blocks, self.small_blocks)
             self.info = info
 
         poll_blocks = [b for b in BLOCKS if b[3]]
-        raw, failed = await read_blocks(self.client, poll_blocks)
+        raw, failed, errors = await read_blocks(self.client, poll_blocks, self.small_blocks)
+        self.last_errors = errors
         if not raw:
-            raise UpdateFailed(f"No response from inverter ({', '.join(failed)})")
+            first = next(iter(errors.values()), "no reply")
+            raise UpdateFailed(f"No response from inverter: {first}")
         if failed != self.failed_blocks:
             if failed:
-                _LOGGER.warning("Sofar: register blocks not readable: %s", ", ".join(failed))
+                _LOGGER.warning(
+                    "Sofar: register blocks not readable: %s",
+                    "; ".join(f"{n} ({errors.get(n, '?')})" for n in failed),
+                )
             self.failed_blocks = failed
 
         raw.update(self.info)
