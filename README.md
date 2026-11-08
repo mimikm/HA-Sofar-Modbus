@@ -1,5 +1,20 @@
 # Sofar Modbus
 
+<p align="center">
+  <img src="custom_components/sofar_modbus/brand/icon.png" alt="Sofar Modbus" width="120">
+</p>
+
+<p align="center">
+  <a href="https://hacs.xyz"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg?logo=homeassistantcommunitystore&logoColor=white" alt="HACS Custom"></a>
+  <a href="https://github.com/mimikm/HA-Sofar-Modbus/actions/workflows/validate.yml"><img src="https://github.com/mimikm/HA-Sofar-Modbus/actions/workflows/validate.yml/badge.svg" alt="HACS / hassfest validation"></a>
+  <a href="https://github.com/mimikm/HA-Sofar-Modbus/releases"><img src="https://img.shields.io/github/v/release/mimikm/HA-Sofar-Modbus?label=version" alt="Version"></a>
+  <a href="https://www.buymeacoffee.com/mimikm"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy me a coffee"></a>
+</p>
+
+<p align="center">
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=mimikm&repository=HA-Sofar-Modbus&category=integration"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open in HACS"></a>
+</p>
+
 Home Assistant integration for **Sofar Solar inverters** over an **RS485-to-Ethernet gateway** (Ebyte NE2-D14E, Waveshare RS485 TO ETH, …). Local polling, no cloud, no pymodbus dependency.
 
 It **autodetects** what your inverter has and only creates the entities that exist: phases, PV inputs, battery inputs, hybrid controls.
@@ -21,9 +36,6 @@ Tested on hardware: HYD 3680-EP. Other modern models are detected from the inver
 4. Setup shows what it found before adding the device. Press **Re-detect inverter** after a firmware update or adding a battery.
 
 Upgrading from `sofar_hyd_ep` (v0.2 and earlier): remove the old integration and its folder, install this one and add the inverter again. Entity IDs change from `…sofar_hyd_ep…` to new ones under the `Sofar` device.
-
-[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=mimikm&repository=HA-Sofar-Modbus&category=integration)
-[![Validate](https://github.com/mimikm/HA-Sofar-Modbus/actions/workflows/validate.yml/badge.svg)](https://github.com/mimikm/HA-Sofar-Modbus/actions/workflows/validate.yml)
 
 ## Install
 
