@@ -20,7 +20,7 @@ from .const import CONF_FRAMING, CONF_SLAVE, DOMAIN, PLATFORMS
 from .coordinator import SofarCoordinator
 from .detect import UnsupportedInverter, detect
 from .modbus import ModbusError, SofarModbusClient
-from .registers import BATTERY_ACTIONS, SCAN_RANGES, WEEKDAYS
+from .registers import BATTERY_ACTIONS, SCAN_RANGES, WEEKDAYS, normalise_action
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,8 +68,19 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
         )
 
     async def battery_action(call: ServiceCall) -> None:
+        raw = next((call.data[k] for k in ("action", "operation", "mode") if call.data.get(k)), None)
+        action = normalise_action(raw)
+        if action is None:
+            raise ServiceValidationError(
+                f"Unknown battery action {raw!r}. Use one of: {', '.join(BATTERY_ACTIONS)} "
+                "(or auto, charge, discharge, pause, freeze_charge, freeze_discharge)")
+        def _num(key):
+            value = call.data.get(key)
+            return None if value in (None, "") else int(value)
+
+        target = _num("target_soc")
         await _coordinator(call).async_battery_action(
-            call.data["action"], call.data.get("power"), call.data.get("target_soc"))
+            action, _num("power"), target if target else None)
 
     async def scan_registers(call: ServiceCall):
         coord = _coordinator(call)
@@ -167,9 +178,16 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
     )
     hass.services.async_register(
         DOMAIN, "battery_action", battery_action,
-        schema=vol.Schema({ENTRY: str, DEVICE: vol.Any(str, [str]), vol.Required("action"): vol.In(BATTERY_ACTIONS),
-                           vol.Optional("power"): vol.All(vol.Coerce(int), vol.Range(0, 50000)),
-                           vol.Optional("target_soc"): SOC}),
+        # Lenient on purpose: Predbat and older templates may send "operation" instead of
+        # "action", strings for numbers, or extra keys it adds itself.
+        schema=vol.Schema({ENTRY: str, DEVICE: vol.Any(str, [str]),
+                           vol.Optional("action"): cv.string, vol.Optional("operation"): cv.string,
+                           vol.Optional("mode"): cv.string,
+                           vol.Optional("power"): vol.Any(None, "", vol.All(vol.Coerce(float), vol.Coerce(int),
+                                                                         vol.Range(0, 50000))),
+                           vol.Optional("target_soc"): vol.Any(None, "", vol.All(vol.Coerce(float), vol.Coerce(int),
+                                                                              vol.Range(0, 100)))},
+                          extra=vol.ALLOW_EXTRA),
     )
     hass.services.async_register(
         DOMAIN, "scan_registers", scan_registers,

@@ -33,13 +33,15 @@ It uses Predbat's built-in **`SFMB`** (Sofar HYD) inverter profile, so no Predba
 
 Predbat calls the integration's `sofar_modbus.battery_action` service:
 
-| Predbat wants to… | Service call | What the inverter does |
+| Predbat wants to… | `operation` sent | What the inverter does |
 |---|---|---|
-| Charge to X % | `Force charge`, `power`, `target_soc` | Charges at `power` W until X %, then holds |
-| Hold the charge | `Hold (no discharge)` | Covers the house from grid/solar, battery never discharges, surplus solar still charges it |
-| Export to X % | `Force discharge`, `power`, `target_soc` | Discharges at `power` W until X %, then holds |
-| Freeze export | `Hold (no charge)` | Battery may cover the house but never charges; surplus solar is exported |
-| Go back to normal | `Auto (self use)` | Inverter's own self-use mode |
+| Charge to X % | `force_charge` + `power`, `target_soc` | Charges at `power` W until X %, then holds |
+| Hold the charge | `freeze_charge` | Covers the house from grid/solar, battery never discharges, surplus solar still charges it |
+| Export to X % | `force_discharge` + `power`, `target_soc` | Discharges at `power` W until X %, then holds |
+| Freeze export | `freeze_discharge` | Battery may cover the house but never charges; surplus solar is exported |
+| Go back to normal | `self_use` | Inverter's own self-use mode |
+
+The service accepts the mode as `operation` or `action`, either as these short names or the full names shown in the Battery action select ("Auto (self use)", "Force charge", …).
 
 The target-SOC stop runs inside the integration on every poll and survives restarts, so a missed Predbat cycle can't overcharge or over-discharge the battery.
 

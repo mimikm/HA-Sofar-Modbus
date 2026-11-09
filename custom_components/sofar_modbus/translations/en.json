@@ -479,7 +479,7 @@
         },
         "action": {
           "name": "Action",
-          "description": "What the battery should do."
+          "description": "What the battery should do. Also accepted as \"operation\", and short names work: self_use, force_charge, force_discharge, pause, freeze_charge, freeze_discharge."
         },
         "power": {
           "name": "Power",

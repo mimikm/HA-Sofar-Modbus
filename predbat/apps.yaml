@@ -108,31 +108,32 @@ pred_bat:
     - "00:01:00"
 
   # Battery control through the integration's battery_action service.
+  # Uses "operation" (not "action") so it can't be confused with Home Assistant's own "action:" key.
   # Predbat passes the power and target SOC; the integration charges/discharges until the
   # target is reached and then holds. Add `device_id: <your Sofar device id>` to each service
   # if you have more than one Sofar inverter.
   charge_start_service:
     service: sofar_modbus.battery_action
-    action: "Force charge"
+    operation: force_charge
     power: "{power}"
     target_soc: "{target_soc}"
   charge_freeze_service:
     service: sofar_modbus.battery_action
-    action: "Hold (no discharge)"
+    operation: freeze_charge
   charge_stop_service:
     service: sofar_modbus.battery_action
-    action: "Auto (self use)"
+    operation: self_use
   discharge_start_service:
     service: sofar_modbus.battery_action
-    action: "Force discharge"
+    operation: force_discharge
     power: "{power}"
     target_soc: "{target_soc}"
   discharge_freeze_service:
     service: sofar_modbus.battery_action
-    action: "Hold (no charge)"
+    operation: freeze_discharge
   discharge_stop_service:
     service: sofar_modbus.battery_action
-    action: "Auto (self use)"
+    operation: self_use
 
   # Inverter max AC limit (one per inverter). E.g for a 3.6kw inverter set to 3600
   # If you have a second inverter for PV only please add the two values together

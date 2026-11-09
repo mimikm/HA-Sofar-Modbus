@@ -604,3 +604,37 @@ def pack_tou(rule_id: int, enabled: bool, start, end, target_soc: int, power: in
     return ([rule_id, 1 if enabled else 0, hhmm(start), hhmm(end), int(target_soc)]
             + pack_u32(abs(power))
             + [(date_start[0] << 8) | date_start[1], (date_end[0] << 8) | date_end[1], bits])
+
+
+# Short, tolerant names for battery actions (service calls from Predbat, scripts, automations).
+ACTION_ALIASES: dict[str, str] = {
+    "auto": ACTION_AUTO, "self_use": ACTION_AUTO, "selfuse": ACTION_AUTO, "normal": ACTION_AUTO,
+    "stop": ACTION_AUTO, "charge_stop": ACTION_AUTO, "discharge_stop": ACTION_AUTO,
+    "charge": ACTION_CHARGE, "force_charge": ACTION_CHARGE, "charge_start": ACTION_CHARGE,
+    "discharge": ACTION_DISCHARGE, "force_discharge": ACTION_DISCHARGE, "export": ACTION_DISCHARGE,
+    "discharge_start": ACTION_DISCHARGE,
+    "pause": ACTION_PAUSE, "pause_battery": ACTION_PAUSE, "standby": ACTION_PAUSE, "idle": ACTION_PAUSE,
+    "hold": ACTION_NO_DISCHARGE, "hold_no_discharge": ACTION_NO_DISCHARGE, "no_discharge": ACTION_NO_DISCHARGE,
+    "freeze_charge": ACTION_NO_DISCHARGE, "charge_freeze": ACTION_NO_DISCHARGE,
+    "hold_no_charge": ACTION_NO_CHARGE, "no_charge": ACTION_NO_CHARGE,
+    "freeze_discharge": ACTION_NO_CHARGE, "discharge_freeze": ACTION_NO_CHARGE,
+}
+
+
+def normalise_action(value) -> str | None:
+    """Map 'Auto (self use)', 'auto', 'Self-Use', 'freeze_charge', ... to a battery action."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    for action in BATTERY_ACTIONS:
+        if text.lower() == action.lower():
+            return action
+    key = "".join(c if c.isalnum() else "_" for c in text.lower()).strip("_")
+    while "__" in key:
+        key = key.replace("__", "_")
+    if key in ACTION_ALIASES:
+        return ACTION_ALIASES[key]
+    for action in BATTERY_ACTIONS:  # "auto_self_use", "hold_no_discharge", ...
+        if key == "".join(c if c.isalnum() else "_" for c in action.lower()).strip("_").replace("__", "_"):
+            return action
+    return None

@@ -35,7 +35,7 @@ battery_action:
         device:
           integration: sofar_modbus
     action:
-      required: true
+      required: false
       selector:
         select:
           options:
