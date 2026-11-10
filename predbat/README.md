@@ -57,12 +57,12 @@ Legacy inverters: "Hold (no discharge)" becomes standby and "Hold (no charge)" b
 
 ## Multiple inverters
 
-Predbat runs **every** entry of a service list for **every** inverter – it does not pick the entry at the inverter's position. Predbat also skips a call that is identical to the previous one in the same domain, even when it came from the other inverter. So give each inverter its own device id and pass it through:
+Predbat runs **every** entry of a service list for **every** inverter – it does not pick the entry at the inverter's position. Predbat also skips a call that is identical to the previous one in the same domain, even when it came from the other inverter. So give each inverter its own id and pass it through:
 
 ```yaml
   device_id:
-  - <device id of inverter 0>
-  - <device id of inverter 1>
+  - solax                 # any label for a non-Sofar inverter
+  - <Sofar serial number>   # or the Sofar's HA device id / integration entry name
 
   charge_start_service:
   - service: script.other_inverter_control   # e.g. a Solax script
@@ -76,6 +76,6 @@ Predbat runs **every** entry of a service list for **every** inverter – it doe
     target_soc: "{target_soc}"
 ```
 
-`battery_action` quietly ignores a call whose `device_id` is not a Sofar Modbus device, so each Sofar only acts on its own inverter's calls. (Find a device id in the URL of its device page.) Other brands' scripts need the same filter, e.g. a first step of `- condition: "{{ device_id is not defined or device_id == '<its device id>' }}"`.
+`battery_action` accepts a Home Assistant device id, the inverter's **serial number** or the integration entry's name, and quietly ignores a call that matches none of its inverters – so each Sofar only acts on its own calls. Prefer the serial number (shown on the device page): a device id changes if the integration entry is removed and added again. Other brands' scripts need the same filter, e.g. a first step of `- condition: "{{ device_id is not defined or device_id == 'solax' }}"`.
 
 With two batteries on one site meter, use `operation: hold_no_charge` (instead of `self_use`) as the Sofar's `charge_stop_service` action. Two batteries both in self-use can settle into one charging from the other while the grid reads 0 W.
