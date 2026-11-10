@@ -83,7 +83,7 @@ Only one Modbus master should poll the inverter's RS485 port. Remove any other i
 
 **Power (W):** PV, PV1, PV2, grid, grid import, grid export, battery, battery charge, battery discharge, house load, inverter AC, EPS.
 
-**Battery:** SOC, SOH, cycles, voltage, current, temperature.
+**Battery:** SOC, SOH, cycles, voltage, current, temperature, reserve (from the inverter's depth of discharge).
 
 **Energy (kWh, Energy-dashboard ready):** PV, house load, grid import, grid export, battery charge, battery discharge – today and lifetime.
 

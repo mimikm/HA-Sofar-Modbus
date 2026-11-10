@@ -11,14 +11,14 @@ from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
-from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, ServiceValidationError
+from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.storage import Store
 
 from .const import CONF_FRAMING, CONF_SLAVE, DOMAIN, PLATFORMS
 from .coordinator import SofarCoordinator
-from .detect import UnsupportedInverter, detect
+from .detect import MAP_VERSION, UnsupportedInverter, detect
 from .modbus import ModbusError, SofarModbusClient
 from .registers import BATTERY_ACTIONS, SCAN_RANGES, WEEKDAYS, normalise_action
 
@@ -228,19 +228,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: SofarConfigEntry) -> boo
     client = SofarModbusClient(
         entry.data[CONF_HOST], entry.data[CONF_PORT], entry.data[CONF_SLAVE], entry.data[CONF_FRAMING]
     )
-    if not entry.data.get("profile"):
-        # First start (or upgrade from v0.2): detect what this inverter has.
+    profile = entry.data.get("profile") or {}
+    if not profile or profile.get("map_version", 1) < MAP_VERSION:
+        # First start, or a newer register map: detect what this inverter has.
         try:
-            profile = await detect(client)
-        except UnsupportedInverter as err:
-            await client.close()
-            raise ConfigEntryError(
-                "This Sofar uses the older ME3000/HYD-ES protocol, which isn't supported yet"
-            ) from err
-        except ModbusError as err:
-            await client.close()
-            raise ConfigEntryNotReady(f"Inverter not reachable: {err}") from err
-        hass.config_entries.async_update_entry(entry, data={**entry.data, "profile": profile})
+            new_profile = await detect(client)
+        except (UnsupportedInverter, ModbusError) as err:
+            if not profile:
+                await client.close()
+                raise ConfigEntryNotReady(f"Inverter not reachable: {err}") from err
+            # Keep running on the old profile; try again on the next start.
+            _LOGGER.warning("Sofar: re-detection for the new register map failed (%s), using the previous profile", err)
+        else:
+            hass.config_entries.async_update_entry(entry, data={**entry.data, "profile": new_profile})
 
     coordinator = SofarCoordinator(hass, entry, client)
     coordinator.slot_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.slots")

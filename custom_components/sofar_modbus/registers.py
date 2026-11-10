@@ -158,6 +158,10 @@ REGISTERS: list[Reg] = [
       enabled=False, diag=True),
     R("bus_voltage", 0x06CC, "u16", 0.1, kind="voltage", name="DC bus voltage", group="internal",
       enabled=False, diag=True),
+    # ---- battery settings (read-only; written by the installer / Sofar app)
+    R("battery_dod", 0x104D, kind="pct", name="Battery depth of discharge", group="batconfig", diag=True),
+    R("battery_eps_dod", 0x104E, kind="pct", name="Battery depth of discharge (EPS)", group="batconfig",
+      diag=True, enabled=False),
     # ---- control read-back (hybrids)
     R("remote_on_off", 0x1104, group="core"),
     R("energy_storage_mode", 0x1110, group="hybrid"),
@@ -425,6 +429,11 @@ def decode(raw: dict[int, int], family: str = "modern") -> dict:
         data["pv_power"] = data["pv_total_power_reg"]
     else:
         data["pv_power"] = sum(pvs) if pvs else None
+
+    # Reserve = the SOC the inverter stops discharging at (100 - depth of discharge).
+    for dod_key, res_key in (("battery_dod", "battery_reserve"), ("battery_eps_dod", "battery_eps_reserve")):
+        dod = data.get(dod_key)
+        data[res_key] = 100 - dod if dod is not None and 0 <= dod <= 100 else None
 
     g = data.get("grid_power")
     data["grid_export_power"] = None if g is None else max(g, 0)

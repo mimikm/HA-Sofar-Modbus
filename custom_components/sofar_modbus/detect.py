@@ -29,6 +29,8 @@ from .registers import (
 _LOGGER = logging.getLogger(__name__)
 
 FAMILY_MODERN = "modern"
+# Bump when registers are added, so existing installs re-detect automatically.
+MAP_VERSION = 2
 FAMILY_LEGACY_STORAGE = "legacy_storage"
 
 
@@ -140,7 +142,7 @@ def build_profile(values: dict[int, int], masks: dict[int, int | None],
             ok = phases == 3 and hybrid
         elif g.startswith("pv") and g[2:].isdigit():
             ok = int(g[2:]) <= pv_inputs
-        elif g in ("battery", "hybrid"):
+        elif g in ("battery", "hybrid", "batconfig"):
             ok = hybrid
         elif g == "battery2":
             ok = battery_inputs >= 2
@@ -165,6 +167,7 @@ def build_profile(values: dict[int, int], masks: dict[int, int | None],
         "hybrid": hybrid,
         "model": model,
         "registers": keys,
+        "map_version": MAP_VERSION,
         "masks": {f"0x{k:04X}": (f"0x{v:016X}" if v is not None else None) for k, v in masks.items()},
         "channels": channels,
     }
@@ -188,6 +191,7 @@ def build_profile_legacy(values: dict[int, int]) -> dict:
         "hybrid": True,
         "model": model,
         "registers": keys,
+        "map_version": MAP_VERSION,
         "masks": {},
         "channels": None,
     }

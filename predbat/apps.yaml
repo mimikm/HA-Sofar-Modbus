@@ -91,9 +91,11 @@ pred_bat:
     - sensor.sofar_inverter_clock
   charge_limit:
     - 100
-  # Minimum battery level Predbat will discharge to - also set input_number.predbat_set_reserve_min
+  # The inverter's battery reserve (100 - depth of discharge, set in the inverter / Sofar app).
+  # Also set input_number.predbat_set_reserve_min to the same value.
+  # Legacy ME3000SP / HYD-ES: replace with a fixed number, e.g. - 10
   reserve:
-    - 10
+    - sensor.sofar_battery_reserve
   scheduled_charge_enable:
     - off
   scheduled_discharge_enable:

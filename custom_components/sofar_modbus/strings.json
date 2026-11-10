@@ -343,6 +343,18 @@
       },
       "battery_max_power": {
         "name": "Battery max power"
+      },
+      "battery_dod": {
+        "name": "Battery depth of discharge"
+      },
+      "battery_eps_dod": {
+        "name": "Battery depth of discharge (EPS)"
+      },
+      "battery_reserve": {
+        "name": "Battery reserve"
+      },
+      "battery_eps_reserve": {
+        "name": "Battery reserve (EPS)"
       }
     },
     "binary_sensor": {

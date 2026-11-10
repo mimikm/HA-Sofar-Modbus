@@ -14,7 +14,9 @@ In **Settings → Devices & services → Sofar Modbus → Configure**, set:
 | **Maximum battery power (W)** | Gives `Battery max power` (Predbat's `battery_rate_max`) and caps every charge/discharge command. |
 | **Keep inverter clock in sync** | Recommended – Predbat plans in half-hour slots. |
 
-Then check that these entities have values: `sensor.sofar_battery_soc`, `sensor.sofar_battery_stored_energy`, `sensor.sofar_battery_capacity`, `sensor.sofar_battery_max_power`.
+Then check that these entities have values: `sensor.sofar_battery_soc`, `sensor.sofar_battery_stored_energy`, `sensor.sofar_battery_capacity`, `sensor.sofar_battery_max_power`, `sensor.sofar_battery_reserve`.
+
+`Battery reserve` is read from the inverter's depth-of-discharge setting (reserve = 100 − DoD). Change it in the inverter menu or Sofar app, then set Predbat's `input_number.predbat_set_reserve_min` to the same value.
 
 **Legacy ME3000SP / HYD-ES:** set the inverter to **Passive mode** on its display and use **RTU over TCP** on the gateway. Comment out `inverter_time` in `apps.yaml` – these models have no readable clock.
 
