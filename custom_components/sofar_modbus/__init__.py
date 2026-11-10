@@ -38,22 +38,42 @@ SLOT_NO = vol.All(vol.Coerce(int), vol.Range(1, 4))
 
 
 async def async_setup(hass: HomeAssistant, config) -> bool:
+    def _match_entry(ref) -> str | None:
+        """Config entry id for a Sofar inverter given its device id, serial number or entry title.
+
+        A device id changes if the integration entry is removed and added again; the serial
+        number (the entry's unique id) and the title don't, so they are safer in apps.yaml.
+        """
+        if not isinstance(ref, str) or not ref.strip():
+            return None
+        device = dr.async_get(hass).async_get(ref)
+        if device is not None:
+            for eid in device.config_entries:
+                entry = hass.config_entries.async_get_entry(eid)
+                if entry and entry.domain == DOMAIN:
+                    return eid
+            return None
+        key = ref.strip().lower()
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            serial = (entry.data.get("profile") or {}).get("serial")
+            names = (entry.entry_id, entry.unique_id, entry.title, serial)
+            if key in {str(n).strip().lower() for n in names if n}:
+                return entry.entry_id
+        return None
+
+    def _device_refs(call: ServiceCall) -> list:
+        refs = call.data.get("device_id")
+        if not refs:
+            return []
+        return refs if isinstance(refs, list) else [refs]
+
     def _coordinator(call: ServiceCall) -> SofarCoordinator:
         entry_id = call.data.get("config_entry_id")
         if entry_id is None and call.data.get("device_id"):
-            dev_ids = call.data["device_id"]
-            dev_ids = dev_ids if isinstance(dev_ids, list) else [dev_ids]
-            registry = dr.async_get(hass)
-            for dev_id in dev_ids:
-                device = registry.async_get(dev_id)
-                if device is None:
-                    continue
-                for eid in device.config_entries:
-                    entry = hass.config_entries.async_get_entry(eid)
-                    if entry and entry.domain == DOMAIN:
-                        entry_id = eid
+            entry_id = next((e for e in map(_match_entry, _device_refs(call)) if e), None)
             if entry_id is None:
-                raise ServiceValidationError("device_id is not a Sofar Modbus device")
+                raise ServiceValidationError(
+                    "device_id is not a Sofar Modbus device id, serial number or entry name")
         entries = [
             e for e in hass.config_entries.async_entries(DOMAIN)
             if e.state is ConfigEntryState.LOADED and (entry_id is None or e.entry_id == entry_id)
@@ -68,27 +88,17 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
         )
 
     def _targets_other_device(call: ServiceCall) -> bool:
-        """True when device_id is given but none of the devices belong to this integration.
+        """True when device_id is given but matches none of this integration's inverters.
 
         Predbat runs every entry of a service list for every inverter, so with a mixed setup
         (e.g. Solax + Sofar) the Sofar entry is also called on behalf of the other inverter.
-        Passing device_id: "{device_id}" lets Predbat send each inverter's own device id;
-        calls meant for another inverter are then ignored here instead of failing.
+        Passing device_id: "{device_id}" lets Predbat send each inverter's own id (a device id,
+        the Sofar serial number, or any label such as "solax" for other brands); calls meant
+        for another inverter are then ignored here instead of failing.
         """
         if call.data.get("config_entry_id") or not call.data.get("device_id"):
             return False
-        dev_ids = call.data["device_id"]
-        dev_ids = dev_ids if isinstance(dev_ids, list) else [dev_ids]
-        registry = dr.async_get(hass)
-        for dev_id in dev_ids:
-            device = registry.async_get(dev_id)
-            if device is None:
-                continue
-            for eid in device.config_entries:
-                entry = hass.config_entries.async_get_entry(eid)
-                if entry and entry.domain == DOMAIN:
-                    return False
-        return True
+        return not any(_match_entry(ref) for ref in _device_refs(call))
 
     async def battery_action(call: ServiceCall) -> None:
         if _targets_other_device(call):
