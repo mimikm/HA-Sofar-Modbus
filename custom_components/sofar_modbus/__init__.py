@@ -67,7 +67,33 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
             call.data["grid_power"], call.data["battery_min"], call.data["battery_max"]
         )
 
+    def _targets_other_device(call: ServiceCall) -> bool:
+        """True when device_id is given but none of the devices belong to this integration.
+
+        Predbat runs every entry of a service list for every inverter, so with a mixed setup
+        (e.g. Solax + Sofar) the Sofar entry is also called on behalf of the other inverter.
+        Passing device_id: "{device_id}" lets Predbat send each inverter's own device id;
+        calls meant for another inverter are then ignored here instead of failing.
+        """
+        if call.data.get("config_entry_id") or not call.data.get("device_id"):
+            return False
+        dev_ids = call.data["device_id"]
+        dev_ids = dev_ids if isinstance(dev_ids, list) else [dev_ids]
+        registry = dr.async_get(hass)
+        for dev_id in dev_ids:
+            device = registry.async_get(dev_id)
+            if device is None:
+                continue
+            for eid in device.config_entries:
+                entry = hass.config_entries.async_get_entry(eid)
+                if entry and entry.domain == DOMAIN:
+                    return False
+        return True
+
     async def battery_action(call: ServiceCall) -> None:
+        if _targets_other_device(call):
+            _LOGGER.debug("battery_action for non-Sofar device %s ignored", call.data.get("device_id"))
+            return
         raw = next((call.data[k] for k in ("action", "operation", "mode") if call.data.get(k)), None)
         action = normalise_action(raw)
         if action is None:

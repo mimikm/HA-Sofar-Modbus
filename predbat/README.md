@@ -51,4 +51,29 @@ Legacy inverters: "Hold (no discharge)" becomes standby and "Hold (no charge)" b
 
 - Don't use the integration's **charge/discharge slots** or native **Timing/TOU** slots at the same time as Predbat – they would fight over the battery.
 - Optional safety net (modern inverters): set **Passive timeout** to e.g. 600 s with action **Return to previous mode**, and turn on **Re-send passive set-points every poll**. If Home Assistant stops, the inverter falls back on its own.
-- Multiple Sofar inverters: add `device_id: <device id>` to each service in `apps.yaml`, and list each inverter's entities in order.
+- Multiple inverters (several Sofars, or Sofar + another brand): see below.
+
+## Multiple inverters
+
+Predbat runs **every** entry of a service list for **every** inverter – it does not pick the entry at the inverter's position. Predbat also skips a call that is identical to the previous one in the same domain, even when it came from the other inverter. So give each inverter its own device id and pass it through:
+
+```yaml
+  device_id:
+  - <device id of inverter 0>
+  - <device id of inverter 1>
+
+  charge_start_service:
+  - service: script.other_inverter_control   # e.g. a Solax script
+    device_id: "{device_id}"
+    operation: "Force Charge"
+    power: "{power}"
+  - service: sofar_modbus.battery_action
+    device_id: "{device_id}"
+    operation: force_charge
+    power: "{power}"
+    target_soc: "{target_soc}"
+```
+
+`battery_action` quietly ignores a call whose `device_id` is not a Sofar Modbus device, so each Sofar only acts on its own inverter's calls. (Find a device id in the URL of its device page.) Other brands' scripts need the same filter, e.g. a first step of `- condition: "{{ device_id is not defined or device_id == '<its device id>' }}"`.
+
+With two batteries on one site meter, use `operation: hold_no_charge` (instead of `self_use`) as the Sofar's `charge_stop_service` action. Two batteries both in self-use can settle into one charging from the other while the grid reads 0 W.

@@ -110,8 +110,9 @@ pred_bat:
   # Battery control through the integration's battery_action service.
   # Uses "operation" (not "action") so it can't be confused with Home Assistant's own "action:" key.
   # Predbat passes the power and target SOC; the integration charges/discharges until the
-  # target is reached and then holds. Add `device_id: <your Sofar device id>` to each service
-  # if you have more than one Sofar inverter.
+  # target is reached and then holds. With more than one inverter, add
+  # `device_id: "{device_id}"` to each service and list the device ids under device_id:
+  # (see the Multiple inverters section of the Predbat guide).
   charge_start_service:
     service: sofar_modbus.battery_action
     operation: force_charge
