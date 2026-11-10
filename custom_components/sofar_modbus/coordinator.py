@@ -340,7 +340,31 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         self._require_modern()
         if bmin > bmax:
             raise HomeAssistantError("battery_min must be <= battery_max")
-        await self._write(REG_PASSIVE_BLOCK, pack_passive(grid, bmin, bmax))
+        values = pack_passive(grid, bmin, bmax)
+        prev_mode = (self.data or {}).get("energy_storage_mode")
+        try:
+            await self.client.write_registers(REG_PASSIVE_BLOCK, values)
+        except ModbusExceptionResponse as err:
+            # Some firmware rejects the passive set-points (e.g. exception 1, illegal
+            # function) unless the inverter is already in passive mode: switch first,
+            # then write again. If that also fails, go back to the previous mode so the
+            # inverter isn't left in passive with stale set-points.
+            if not ensure_mode or prev_mode == MODE_PASSIVE:
+                raise HomeAssistantError(f"Write to 0x{REG_PASSIVE_BLOCK:04X} failed: {err}") from err
+            _LOGGER.debug("Passive set-points rejected outside passive mode (%s): entering passive first", err)
+            await self._write(REG_STORAGE_MODE, [MODE_PASSIVE])
+            try:
+                await self.client.write_registers(REG_PASSIVE_BLOCK, values)
+            except ModbusError as err2:
+                if prev_mode is not None:
+                    try:
+                        await self.client.write_registers(REG_STORAGE_MODE, [prev_mode])
+                    except ModbusError:
+                        pass
+                raise HomeAssistantError(
+                    f"Write to 0x{REG_PASSIVE_BLOCK:04X} failed in passive mode: {err2}") from err2
+        except ModbusError as err:
+            raise HomeAssistantError(f"Write to 0x{REG_PASSIVE_BLOCK:04X} failed: {err}") from err
         self._last_passive = (int(grid), int(bmin), int(bmax))
         if ensure_mode and (self.data or {}).get("energy_storage_mode") != MODE_PASSIVE:
             await self._write(REG_STORAGE_MODE, [MODE_PASSIVE])
