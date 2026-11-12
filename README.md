@@ -11,6 +11,7 @@
   <a href="https://github.com/mimikm/HA-Sofar-Modbus/releases"><img src="https://img.shields.io/github/downloads/mimikm/HA-Sofar-Modbus/total?label=downloads" alt="Total downloads"></a>
   <a href="https://github.com/mimikm/HA-Sofar-Modbus/releases/latest"><img src="https://img.shields.io/github/downloads/mimikm/HA-Sofar-Modbus/latest/total?label=latest%20release" alt="Latest release downloads"></a>
   <a href="https://www.buymeacoffee.com/mimikm"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy me a coffee"></a>
+  <a href="https://octopusreferralcode.com"><img src="https://img.shields.io/badge/Octopus%20Energy-referral%20code-E52E8B" alt="Octopus Energy referral code"></a>
 </p>
 
 <p align="center">
@@ -182,3 +183,10 @@ data:
 
 * Register map: Sofar "Modbus Protocol – General, valid for HYD 5…20K-3PH and HYD 3…6K-EP". Passive-mode layout (0x1187 grid, 0x1189 min, 0x118B max, I32) matches what evcc and solax_modbus use on real hardware.
 * Writes use function 0x10 only, as the protocol document specifies.
+
+## Support
+
+If this integration saves you money, you can support it by:
+
+* [Buying me a coffee](https://www.buymeacoffee.com/mimikm)
+* Switching to Octopus Energy with my referral code – **[octopusreferralcode.com](https://octopusreferralcode.com)**. Octopus gives a credit to both of us. Their Intelligent and Agile tariffs work well with Predbat and a Sofar battery.
