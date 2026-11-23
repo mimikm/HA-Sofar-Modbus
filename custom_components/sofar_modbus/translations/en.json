@@ -715,5 +715,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "passive_timeout_without_keepalive": {
+      "title": "Sofar passive timeout without keep-alive",
+      "description": "{name} has a passive timeout of {seconds} s, but **Re-send passive set-points every poll** is off. The inverter will drop any forced charge, discharge or hold (for example from Predbat) after {seconds} s and go back to its timeout action.\n\nFix it either way:\n- Turn on **Re-send passive set-points every poll** in the integration's options (recommended), or\n- set **Passive timeout** to 0.\n\nThis warning clears itself once fixed."
+    }
   }
 }

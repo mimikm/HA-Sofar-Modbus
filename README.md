@@ -177,7 +177,7 @@ data:
 * **Maximum battery power** – default 3000 W; caps the action power and sliders.
 * **Battery capacity** – kWh; enables Battery stored energy and Battery capacity sensors (used by Predbat).
 * **Keep inverter clock in sync** – auto-corrects drift over 30 s, at most once an hour.
-* **Re-send passive set-points every poll** – turn on together with a passive timeout, so the inverter falls back safely if Home Assistant stops.
+* **Re-send passive set-points every poll** – turn on together with a passive timeout, so the inverter falls back safely if Home Assistant stops. A timeout without this option drops forced/hold commands after the timeout; the integration shows a Repairs warning in that case.
 
 ## Notes
 

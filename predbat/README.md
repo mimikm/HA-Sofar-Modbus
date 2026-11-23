@@ -53,6 +53,7 @@ Legacy inverters: "Hold (no discharge)" becomes standby and "Hold (no charge)" b
 
 - Don't use the integration's **charge/discharge slots** or native **Timing/TOU** slots at the same time as Predbat – they would fight over the battery.
 - Optional safety net (modern inverters): set **Passive timeout** to e.g. 600 s with action **Return to previous mode**, and turn on **Re-send passive set-points every poll**. If Home Assistant stops, the inverter falls back on its own.
+  **Both or neither:** a passive timeout without keep-alive makes the inverter drop Predbat's holds after the timeout, and Predbat won't resend an unchanged hold. The integration raises a Repairs warning if it sees that combination.
 - Multiple inverters (several Sofars, or Sofar + another brand): see below.
 
 ## Multiple inverters

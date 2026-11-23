@@ -17,6 +17,8 @@ DEFAULT_MAX_BATTERY_POWER = 3000
 DEFAULT_KEEPALIVE = False
 DEFAULT_AUTO_TIME_SYNC = False
 DEFAULT_BATTERY_CAPACITY = 0.0  # kWh, 0 = not set
+# Seconds to wait before applying "Auto (self use)"; a newer battery command cancels it.
+AUTO_DELAY = 2.5
 TIME_SYNC_THRESHOLD = 30  # seconds of drift before auto sync
 
 PLATFORMS = ["sensor", "binary_sensor", "select", "number", "switch", "button", "time"]

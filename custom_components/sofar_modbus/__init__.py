@@ -279,5 +279,6 @@ async def _reload_on_options(hass: HomeAssistant, entry: SofarConfigEntry) -> No
 async def async_unload_entry(hass: HomeAssistant, entry: SofarConfigEntry) -> bool:
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
+        entry.runtime_data.cancel_pending_auto()
         await entry.runtime_data.client.close()
     return ok

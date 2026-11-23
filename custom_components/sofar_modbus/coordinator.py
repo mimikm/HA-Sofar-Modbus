@@ -1,6 +1,7 @@
 """Polling coordinator + write helpers."""
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 import time
 import logging
@@ -8,6 +9,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -18,6 +20,7 @@ from .const import (
     DEFAULT_BATTERY_CAPACITY,
     DEFAULT_AUTO_TIME_SYNC,
     TIME_SYNC_THRESHOLD,
+    AUTO_DELAY,
     CONF_MAX_BATTERY_POWER,
     CONF_SCAN_INTERVAL,
     DEFAULT_KEEPALIVE,
@@ -29,6 +32,7 @@ from .modbus import ModbusError, ModbusExceptionResponse, SofarModbusClient
 from .registers import (
     DEFAULT_KEYS,
     MODE_PASSIVE,
+    MODE_SELF_USE,
     REG_PASSIVE_BLOCK,
     REG_PASSIVE_TIMEOUT,
     REG_REMOTE_ON_OFF,
@@ -173,6 +177,17 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         self.legacy_power: int = 0
         # Target-SOC goal from battery_action (Predbat): {"action", "target"}.
         self.goal: dict | None = None
+        # Energy storage mode bookkeeping: the last mode we wrote and the last one a poll
+        # read, each with the monotonic time it happened. The newer one is believed, so a
+        # failed poll after a write can't make us think an old mode is still active.
+        self._mode_written: int | None = None
+        self._mode_written_at: float = 0.0
+        self._mode_seen: int | None = None
+        self._mode_seen_at: float = 0.0
+        # "Auto (self use)" is applied after a short delay and dropped if another battery
+        # command arrives first (Predbat sends self_use then a hold in the same cycle).
+        self._pending_auto: asyncio.Task | None = None
+        self._timeout_issue: bool | None = None
         self.info: dict[int, int] = {}
         self.failed_blocks: list[str] = []
         self.small_blocks: set[str] = set()
@@ -260,6 +275,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
             info, _, _ = await read_blocks(self.client, info_blocks, self.small_blocks, self.block_needs)
             self.info = info
 
+        poll_started = time.monotonic()
         poll_blocks = [b for b in self.blocks if b[3]]
         raw, failed, errors = await read_blocks(self.client, poll_blocks, self.small_blocks,
                                                 self.block_needs)
@@ -277,6 +293,10 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
 
         raw.update(self.info)
         data = decode(raw, self.family)
+        if data.get("energy_storage_mode") is not None:
+            self._mode_seen = data["energy_storage_mode"]
+            self._mode_seen_at = poll_started
+        self._check_timeout_issue(data)
         if self.family == "legacy_storage":
             data["battery_action"] = self.legacy_action
             await self._legacy_keepalive()
@@ -313,13 +333,64 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         if (
             self.keepalive
             and self._last_passive is not None
-            and data.get("energy_storage_mode") == MODE_PASSIVE
+            and self.known_mode == MODE_PASSIVE
         ):
             try:
                 await self.client.write_registers(REG_PASSIVE_BLOCK, pack_passive(*self._last_passive))
             except ModbusError as err:
                 _LOGGER.warning("Passive keep-alive write failed: %s", err)
         return data
+
+    # ------------------------------------------------------------------ mode tracking
+    @property
+    def known_mode(self) -> int | None:
+        """Best knowledge of the energy storage mode: our last write, unless a poll started after it."""
+        if self._mode_written is not None and self._mode_written_at >= self._mode_seen_at:
+            return self._mode_written
+        return self._mode_seen
+
+    async def _set_mode(self, mode: int, *, force: bool = False) -> bool:
+        """Write the energy storage mode only if it differs from the known mode.
+
+        The mode register may live in the inverter's permanent memory, so repeated
+        Predbat commands must not rewrite it every few minutes. Returns True if written.
+        Raises ModbusError on failure.
+        """
+        if not force and self.known_mode == mode:
+            return False
+        await self.client.write_registers(REG_STORAGE_MODE, [mode])
+        self._mode_written, self._mode_written_at = mode, time.monotonic()
+        return True
+
+    def _check_timeout_issue(self, data: dict) -> None:
+        """Repairs warning: a passive timeout without keep-alive lets holds lapse."""
+        if not (self.modern and self.hybrid):
+            return
+        timeout = data.get("passive_timeout")
+        if timeout is None:
+            return
+        problem = timeout > 0 and not self.keepalive
+        if problem == self._timeout_issue:
+            return
+        self._timeout_issue = problem
+        issue_id = f"passive_timeout_without_keepalive_{self.config_entry.entry_id}"
+        if problem:
+            _LOGGER.warning(
+                "Sofar: passive timeout is %s s but 'Re-send passive set-points every poll' is off – "
+                "the inverter will drop forced/hold commands after %s s", timeout, timeout)
+            ir.async_create_issue(
+                self.hass, DOMAIN, issue_id, is_fixable=False, severity=ir.IssueSeverity.WARNING,
+                translation_key="passive_timeout_without_keepalive",
+                translation_placeholders={"seconds": str(timeout), "name": self.config_entry.title},
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
+    def cancel_pending_auto(self) -> None:
+        if self._pending_auto is not None and not self._pending_auto.done():
+            self._pending_auto.cancel()
+            _LOGGER.debug("Pending 'Auto (self use)' dropped: a newer battery command arrived")
+        self._pending_auto = None
 
     # ------------------------------------------------------------------ writes
     async def _write(self, address: int, values: list[int]) -> None:
@@ -330,7 +401,10 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
 
     async def async_set_storage_mode(self, mode: int) -> None:
         self._require_modern()
-        await self._write(REG_STORAGE_MODE, [mode])
+        try:
+            await self._set_mode(mode)
+        except ModbusError as err:
+            raise HomeAssistantError(f"Write to 0x{REG_STORAGE_MODE:04X} failed: {err}") from err
         if mode != MODE_PASSIVE:
             self._last_passive = None
         await self.async_request_refresh()
@@ -341,7 +415,7 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         if bmin > bmax:
             raise HomeAssistantError("battery_min must be <= battery_max")
         values = pack_passive(grid, bmin, bmax)
-        prev_mode = (self.data or {}).get("energy_storage_mode")
+        prev_mode = self.known_mode
         try:
             await self.client.write_registers(REG_PASSIVE_BLOCK, values)
         except ModbusExceptionResponse as err:
@@ -352,13 +426,16 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
             if not ensure_mode or prev_mode == MODE_PASSIVE:
                 raise HomeAssistantError(f"Write to 0x{REG_PASSIVE_BLOCK:04X} failed: {err}") from err
             _LOGGER.debug("Passive set-points rejected outside passive mode (%s): entering passive first", err)
-            await self._write(REG_STORAGE_MODE, [MODE_PASSIVE])
+            try:
+                await self._set_mode(MODE_PASSIVE, force=True)
+            except ModbusError as err3:
+                raise HomeAssistantError(f"Write to 0x{REG_STORAGE_MODE:04X} failed: {err3}") from err3
             try:
                 await self.client.write_registers(REG_PASSIVE_BLOCK, values)
             except ModbusError as err2:
                 if prev_mode is not None:
                     try:
-                        await self.client.write_registers(REG_STORAGE_MODE, [prev_mode])
+                        await self._set_mode(prev_mode, force=True)
                     except ModbusError:
                         pass
                 raise HomeAssistantError(
@@ -366,8 +443,11 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
         except ModbusError as err:
             raise HomeAssistantError(f"Write to 0x{REG_PASSIVE_BLOCK:04X} failed: {err}") from err
         self._last_passive = (int(grid), int(bmin), int(bmax))
-        if ensure_mode and (self.data or {}).get("energy_storage_mode") != MODE_PASSIVE:
-            await self._write(REG_STORAGE_MODE, [MODE_PASSIVE])
+        if ensure_mode:
+            try:
+                await self._set_mode(MODE_PASSIVE)
+            except ModbusError as err:
+                raise HomeAssistantError(f"Write to 0x{REG_STORAGE_MODE:04X} failed: {err}") from err
         await self.async_request_refresh()
 
     async def async_set_passive_value(self, key: str, value: int) -> None:
@@ -388,7 +468,29 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
 
     async def async_battery_action(self, action: str, power: int | None = None,
                                    target_soc: int | None = None) -> None:
+        """Apply a battery action. "Auto (self use)" waits AUTO_DELAY s and is dropped if
+        another command arrives meanwhile, so a self_use + hold pair never leaves the hold."""
         self._require_hybrid()
+        self.cancel_pending_auto()
+        if action == ACTION_AUTO:
+            self._pending_auto = self.hass.async_create_background_task(
+                self._delayed_auto(power), name="sofar_modbus pending self use")
+            return
+        await self._execute_action(action, power, target_soc)
+
+    async def _delayed_auto(self, power: int | None) -> None:
+        try:
+            await asyncio.sleep(AUTO_DELAY)
+        except asyncio.CancelledError:
+            return
+        self._pending_auto = None
+        try:
+            await self._execute_action(ACTION_AUTO, power, None)
+        except HomeAssistantError as err:
+            _LOGGER.warning("Sofar: switching to Auto (self use) failed: %s", err)
+
+    async def _execute_action(self, action: str, power: int | None = None,
+                              target_soc: int | None = None) -> None:
         if target_soc is not None and action in (ACTION_CHARGE, ACTION_DISCHARGE):
             soc = (self.data or {}).get("battery_soc")
             reached = soc is not None and (
@@ -528,7 +630,10 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
             raise HomeAssistantError(f"{label}: inverter stored different values – check the log")
         _LOGGER.info("%s written%s", label, " and verified" if readback is not None else "")
         if mode is not None:
-            await self._write(REG_STORAGE_MODE, [mode])
+            try:
+                await self._set_mode(mode)
+            except ModbusError as err:
+                raise HomeAssistantError(f"Write to 0x{REG_STORAGE_MODE:04X} failed: {err}") from err
         await self.async_request_refresh()
 
     # ------------------------------------------------------------------ HA slots
@@ -600,12 +705,12 @@ class SofarCoordinator(DataUpdateCoordinator[dict]):
                 return True
             values = action_to_passive(action, power, self.max_battery_power)
             if values is None:
-                await self.client.write_registers(REG_STORAGE_MODE, [0])
+                await self._set_mode(MODE_SELF_USE)
                 self._last_passive = None
             else:
                 await self.client.write_registers(REG_PASSIVE_BLOCK, pack_passive(*values))
                 self._last_passive = values
-                await self.client.write_registers(REG_STORAGE_MODE, [MODE_PASSIVE])
+                await self._set_mode(MODE_PASSIVE)
             _LOGGER.info("Slot scheduler: %s %s W", action, power)
             return True
         except ModbusError as err:
